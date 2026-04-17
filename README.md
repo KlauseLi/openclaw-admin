@@ -28,6 +28,41 @@ wsl -d Ubuntu -- systemctl --user status openclaw-gateway --no-pager
 netstat -ano | findstr :18789
 ```
 
+## 1分钟排障清单
+
+按这个顺序走，通常 1 分钟内能定位问题：
+
+1. 看 Windows 侧保活服务是否运行
+
+```powershell
+Get-Service OpenClawWSLHost | Select-Object Name,Status,StartType
+```
+
+2. 看 WSL 内 gateway 是否 active
+
+```powershell
+wsl -d Ubuntu -- systemctl --user status openclaw-gateway --no-pager
+```
+
+3. 看本机端口是否监听（按你的实际端口）
+
+```powershell
+netstat -ano | findstr :18789
+```
+
+4. 如果浏览器提示 token 问题，取当前运行环境 token
+
+```powershell
+wsl -d Ubuntu -- bash -lc "cat ~/.openclaw/openclaw.json | grep -i token"
+```
+
+5. 修改过服务或端口后，重载并重启 user 服务
+
+```powershell
+wsl -d Ubuntu -- systemctl --user daemon-reload
+wsl -d Ubuntu -- systemctl --user restart openclaw-gateway
+```
+
 ## 变更说明
 
 - 已停止 Windows 原生 OpenClaw 运维脚本的后续维护。
