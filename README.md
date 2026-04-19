@@ -1,121 +1,62 @@
 # OpenClaw Admin
 
-这个仓库现在承载的是一套可落地的 OpenClaw 执行链路模板：
+这个仓库保存的是一套已经跑通的 OpenClaw 本地执行链路模板，核心目标是：
 
-- `OpenClaw`
-- `MCP bridge`
-- `Claude Code CLI`
-- `Local proxy`
-- `Upstream model provider`
+- OpenClaw 通过 MCP 调用 Claude Code
+- Claude Code 在本地真实创建和修改文件
+- 聊天请求通过本地 Proxy 转发到上游模型
+- VLM/图片请求通过 `MINIMAX_API_HOST` 直连 MiniMax
 
-目标不是只保留运维文档，而是把文档里的方案整理成一个能直接改、直接部署、直接扩展的项目骨架。
-
-## 仓库结构
+当前方案已经统一到这条链路：
 
 ```text
-.
-├── bridge/
-│   ├── claude-bridge.mjs
-│   └── package.json
-├── proxy/
-│   ├── ecosystem.config.js
-│   ├── package.json
-│   └── server.js
-├── .gitignore
-└── open_claw_claude_code_proxy_可执行操作指南.md
+普通聊天请求
+OpenClaw -> MCP claude-bridge -> Claude Code CLI -> Proxy -> MiniMax
+
+VLM/图片请求
+OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 ```
 
-## 模块说明
+## 先看哪里
 
-### `bridge/`
+如果你第一次接手这个项目，推荐按这个顺序看：
 
-MCP 工具服务，负责把 OpenClaw 的工具调用转发给本地 `claude` CLI。
+1. [open_claw_claude_code_proxy_可执行操作指南.md](./open_claw_claude_code_proxy_%E5%8F%AF%E6%89%A7%E8%A1%8C%E6%93%8D%E4%BD%9C%E6%8C%87%E5%8D%97.md)
+2. [openclaw.example.json](./openclaw.example.json)
+3. [bridge/claude-bridge.mjs](./bridge/claude-bridge.mjs)
+4. [proxy/server.js](./proxy/server.js)
 
-默认行为：
+## 仓库里的关键文件
 
-- 在指定工作目录中执行 Claude Code
-- 输出 JSON 结果
-- 记录 bridge 调用日志
-- 超时后返回错误结果
+- `bridge/claude-bridge.mjs`
+  OpenClaw MCP 工具服务，负责以 `claude` 用户身份调用本地 Claude Code CLI。
 
-关键环境变量：
+- `proxy/server.js`
+  本地代理层，负责聊天请求转发、model rewrite、流式响应透传和错误日志。
 
-- `CLAUDE_WORK_DIR`
-- `CLAUDE_TIMEOUT`
-- `BRIDGE_LOG_FILE`
-- `ANTHROPIC_BASE_URL`
-- `ANTHROPIC_AUTH_TOKEN`
+- `proxy/ecosystem.config.js`
+  PM2 启动配置，真实 `UPSTREAM_API_KEY` 通过环境变量注入。
 
-### `proxy/`
+- `openclaw.example.json`
+  脱敏后的 OpenClaw 配置模板，用于对照 MCP、gateway、插件和 channel 结构。
 
-本地代理层，负责：
+- `open_claw_claude_code_proxy_可执行操作指南.md`
+  当前最完整、最贴近真实部署状态的操作文档。
 
-- 持有真实上游 API Key
-- 转发 Claude CLI 请求到兼容上游
-- 输出访问日志
-- 暴露健康检查接口
+## 当前约定
 
-关键环境变量：
+- Bridge 运行用户：`claude`
+- Claude Code 工作目录：`/home/claude/workspaces/demo`
+- Proxy 运行目录：`/root/ai-lab/proxy`
+- Proxy 监听地址：`http://localhost:3040`
+- OpenClaw gateway 默认端口：`18789`
 
-- `PORT`
-- `UPSTREAM_BASE_URL`
-- `UPSTREAM_API_KEY`
-- `PROXY_LOG_DIR`
+## 安全说明
 
-## 快速开始
+- 真实的 `openclaw.json` 不提交到仓库
+- 真实 token、API key、飞书密钥都只保留在本地环境
+- 仓库里只保留脱敏模板和操作说明
 
-### 1. 安装 bridge 依赖
+## 备注
 
-```bash
-cd bridge
-npm install
-```
-
-### 2. 安装 proxy 依赖
-
-```bash
-cd proxy
-npm install
-```
-
-### 3. 配置 OpenClaw MCP
-
-把 `bridge/claude-bridge.mjs` 注册为 MCP stdio 服务，并确保传入：
-
-```json
-{
-  "CLAUDE_WORK_DIR": "/root/workspaces/demo",
-  "CLAUDE_TIMEOUT": "300000",
-  "ANTHROPIC_BASE_URL": "http://localhost:3040",
-  "ANTHROPIC_AUTH_TOKEN": "sk-dummy"
-}
-```
-
-### 4. 启动 proxy
-
-```bash
-cd proxy
-pm2 start ecosystem.config.js
-pm2 save
-```
-
-### 5. 验证健康状态
-
-```bash
-curl http://localhost:3040/healthz
-```
-
-## 运行约定
-
-- `bridge` 不保存真实上游 Key
-- 真实 Key 只应保存在 `proxy` 运行环境中
-- `proxy/server.js` 不使用 `express.json()`，避免请求体被提前消费
-- `bridge` 默认要求本机已安装 `claude` CLI
-
-## 文档
-
-完整实施说明见：
-
-- [open_claw_claude_code_proxy_可执行操作指南.md](./open_claw_claude_code_proxy_%E5%8F%AF%E6%89%A7%E8%A1%8C%E6%93%8D%E4%BD%9C%E6%8C%87%E5%8D%97.md)
-
-如果你只是排查 WSL 网关运行状态，后续可以再单独补一份 `docs/ops-wsl.md`，把运维说明和项目源码说明拆开。
+如果后续你发现“指南”和“真实代码”有偏差，以仓库里的实际代码和 `openclaw.example.json` 为准，然后再把指南补齐。
