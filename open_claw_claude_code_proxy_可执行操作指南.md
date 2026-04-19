@@ -11,46 +11,44 @@
 
 ## 一、当前实际架构
 
-```text
+```
 VLM/图片请求: OpenClaw -> MiniMax 直连 (MINIMAX_API_HOST)
                 绕过 proxy，不经过 localhost:3040
 
-普通聊天请求: OpenClaw -> MCP: claude-bridge
-                   -> Claude Code CLI
-                   -> Proxy (http://localhost:3040)
+普通聊天请求: OpenClaw -> MCP: claude-bridge (sudo -u claude)
+                   -> Claude Code CLI (/usr/bin/claude --bare -p ...)
+                   -> Proxy (http://localhost:3040, model rewrite)
                    -> MiniMax (/anthropic/v1/messages)
 ```
 
 说明：
 
 - OpenClaw 负责调度
-- `claude-bridge.mjs` 是 MCP 工具服务
-- Claude Code 负责真实执行文件操作
-- Proxy 统一持有真实上游 Key，只处理聊天请求
-- Claude Code 只使用 dummy token 连接本地 Proxy
+- `claude-bridge.mjs` 是 MCP 工具服务，以 `claude` 用户身份运行（通过 `sudo -u claude env ...` 注入环境变量）
+- Claude Code 负责真实执行文件操作（沙箱限制：只能写 `CLAUDE_WORK_DIR` 下的文件）
+- Proxy 统一持有真实上游 Key，处理聊天请求，同时做 model rewrite（`claude-sonnet-4-6` → `MiniMax-M2.7`）
 - **VLM/图片请求走 MiniMax 直连**，由 `MINIMAX_API_HOST` 环境变量控制，绕过 proxy
-  - 原因：MiniMax VLM 端点路径为 `/v1/coding_plan/vlm`（无 `/anthropic` 前缀），与聊天路径格式不同，走直连更简单
 
 ---
 
 ## 二、当前目录结构
 
 ```text
+/home/claude/ai-lab/
+  └── bridge/
+      ├── claude-bridge.mjs
+      ├── bridge.log
+      └── node_modules/
+
 /root/ai-lab/
-  ├── bridge/
-  │   └── claude-bridge.mjs
   └── proxy/
       ├── server.js
       ├── ecosystem.config.js
-      └── logs/
+      ├── logs/
+      │   └── access.log
+      └── node_modules/
 
-/root/workspaces/demo/
-```
-
-工作目录固定为：
-
-```text
-/root/workspaces/demo
+/home/claude/workspaces/demo/     ← Claude Code 的 WORK_DIR
 ```
 
 ---
@@ -62,28 +60,24 @@ VLM/图片请求: OpenClaw -> MiniMax 直连 (MINIMAX_API_HOST)
 - WSL Ubuntu
 - Node.js / npm
 - Claude Code CLI
+- `claude` 系统用户
 - OpenClaw 已可启动
 - PM2 已安装
 
 验证命令：
 
 ```bash
-which claude
-claude --version
-node -v
-npm -v
+which claude && claude --version
+node -v && npm -v
 pm2 -v
+id claude   # 确认 claude 用户存在
 ```
 
 ---
 
 ## 四、Bridge 文件
 
-路径：
-
-```text
-/root/ai-lab/bridge/claude-bridge.mjs
-```
+路径：`/home/claude/ai-lab/bridge/claude-bridge.mjs`
 
 当前实际版本：
 
@@ -93,12 +87,18 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { spawn } from "child_process";
 import fs from "fs";
+import path from "path";
 
-const WORK_DIR = process.env.CLAUDE_WORK_DIR || "/root/workspaces/demo";
+const WORK_DIR = process.env.CLAUDE_WORK_DIR || "/home/claude/workspaces/demo";
 const TIMEOUT  = parseInt(process.env.CLAUDE_TIMEOUT || "300000", 10);
-const LOG_FILE = "/root/ai-lab/bridge/bridge.log";
+const LOG_FILE = "/home/claude/ai-lab/bridge/bridge.log";
+
+function ensureLogDir(filePath) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
 
 function log(msg) {
+  ensureLogDir(LOG_FILE);
   fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
 }
 
@@ -115,14 +115,21 @@ server.tool(
     log(`tool called, cwd=${WORK_DIR}, prompt=${JSON.stringify(prompt)}`);
 
     return new Promise((resolve) => {
-      const child = spawn("claude", [
-        "-p", prompt,
-        "--output-format", "json",
-        "--dangerously-skip-permissions"
+      const child = spawn("/usr/bin/claude", [
+        "--bare", "-p", prompt,
+        "--output-format", "json"
       ], {
         cwd: WORK_DIR,
         timeout: TIMEOUT,
-        env: { ...process.env }
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          HOME: "/home/claude",
+          USER: "claude",
+          LOGNAME: "claude",
+          PATH: process.env.PATH,
+          ANTHROPIC_API_KEY: process.env.MINIMAX_API_KEY || "",
+          ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL || "http://localhost:3040"
+        }
       });
 
       let stdout = "";
@@ -169,40 +176,47 @@ server.tool(
 const transport = new StdioServerTransport();
 await server.connect(transport);
 log("bridge: transport connected, waiting for messages...");
-await new Promise(r => setTimeout(r, 200));
+await new Promise((resolve) => setTimeout(resolve, 200));
 log("bridge: transport closed");
-process.exit(0);
 ```
 
-> ⚠️ **特别注意**：`sudo -u claude` 切换用户时 stdin pipe 存在短暂"真空期"，transport 在此期间收到的数据会被静默丢弃导致 `Connection closed`。因此在 `await server.connect()` 后加 200ms 延迟，让 pipe 完全就绪后再退出。
+**关键点说明**：
+- `spawn("/usr/bin/claude", ["--bare", ...])` — 必须用绝对路径，`--bare` 跳过交互式登录检查
+- `stdio: ["ignore", "pipe", "pipe"]` — stdin 指向 /dev/null 避免 "no stdin data received" 警告
+- env 显式设置 `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL`，不用 `...process.env`（sudo 会过滤）
+- `ensureLogDir()` 先创建日志目录，避免首次启动时因 `bridge.log` 路径不存在而报错
+- `await server.connect()` 后额外等待 200ms，减少 `sudo -u claude` 切换时的 stdio 就绪问题
+- WORK_DIR 只能写 `/home/claude/workspaces/demo` 及子目录（Claude Code 沙箱限制）
 
 ---
 
 ## 五、OpenClaw MCP 配置
 
-把以下配置写入 OpenClaw 的 MCP 配置文件：
+把以下配置写入 `/root/.openclaw/openclaw.json` 的 `mcp.servers` 段落：
 
 ```json
-{
-  "mcp": {
-    "servers": {
-      "claude-bridge": {
-        "command": "/usr/bin/node",
-        "args": [
-          "/root/ai-lab/bridge/claude-bridge.mjs"
-        ],
-        "type": "stdio",
-        "trust": "trusted",
-        "env": {
-          "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-          "HOME": "/root",
-          "USER": "root",
-          "LOGNAME": "root",
-          "CLAUDE_WORK_DIR": "/root/workspaces/demo",
-          "CLAUDE_TIMEOUT": "300000",
-          "ANTHROPIC_BASE_URL": "http://localhost:3040",
-          "ANTHROPIC_AUTH_TOKEN": "sk-dummy"
-        }
+"mcp": {
+  "servers": {
+    "claude-bridge": {
+      "command": "/usr/bin/sudo",
+      "args": [
+        "-u", "claude", "env",
+        "MINIMAX_API_KEY=${MINIMAX_API_KEY}",
+        "MINIMAX_API_HOST=${MINIMAX_API_HOST}",
+        "HOME=/home/claude",
+        "ANTHROPIC_BASE_URL=http://localhost:3040",
+        "/usr/bin/node",
+        "/home/claude/ai-lab/bridge/claude-bridge.mjs"
+      ],
+      "type": "stdio",
+      "env": {
+        "HOME": "/home/claude",
+        "USER": "claude",
+        "LOGNAME": "claude",
+        "CLAUDE_WORK_DIR": "/home/claude/workspaces/demo",
+        "CLAUDE_TIMEOUT": "300000",
+        "MINIMAX_API_KEY": "${MINIMAX_API_KEY}",
+        "MINIMAX_API_HOST": "${MINIMAX_API_HOST}"
       }
     }
   }
@@ -211,19 +225,16 @@ process.exit(0);
 
 说明：
 
-- `ANTHROPIC_BASE_URL` 指向本地 Proxy
-- `ANTHROPIC_AUTH_TOKEN` 使用 dummy 即可
-- 真实 Key 不在这里配置
+- 用 `sudo -u claude env KEY=value` 方式注入环境变量（sudo 会过滤 `env:` dict 里的 `ANTHROPIC_API_KEY`，所以通过 sudo 的 args 传）
+- `MINIMAX_API_KEY` 来自运行 OpenClaw 的 shell 环境变量
+- `MINIMAX_API_HOST` 供 VLM/图片请求直连 MiniMax 使用
+- OpenClaw 重启后生效：`pkill -f openclaw; openclaw &`
 
 ---
 
 ## 六、Proxy 文件
 
-路径：
-
-```text
-/root/ai-lab/proxy/server.js
-```
+路径：`/root/ai-lab/proxy/server.js`
 
 当前实际版本：
 
@@ -232,6 +243,7 @@ const express = require("express");
 const morgan = require("morgan");
 const fs = require("fs");
 const path = require("path");
+const { Readable } = require("stream");
 const { createProxyMiddleware } = require("http-proxy-middleware");
 
 const app = express();
@@ -254,8 +266,104 @@ const accessLogStream = fs.createWriteStream(
 
 app.use(morgan("combined", { stream: accessLogStream }));
 
+// 手动收集 body，避免 express.json() 消费 stream 导致兜底代理 body 为空
+function collectBody(req, callback) {
+  if (req.body !== undefined) return callback(null, Buffer.from(JSON.stringify(req.body)));
+  const chunks = [];
+  req.on("data", c => chunks.push(c));
+  req.on("end", () => callback(null, Buffer.concat(chunks)));
+  req.on("error", callback);
+}
+
 app.get("/healthz", (req, res) => {
   res.json({ ok: true, upstream: UPSTREAM_BASE_URL });
+});
+
+// === Model Rewrite helper ===
+function rewriteModelForUpstream(model) {
+  if (!model) return model;
+  if (UPSTREAM_BASE_URL.includes("minimax")) return "MiniMax-M2.7";
+  if (UPSTREAM_BASE_URL.includes("bigmodel")) return "glm-4.7";
+  return model;
+}
+
+// === 流式转发：透传上游响应体 + 响应头 ===
+async function pipeUpstreamResponse(upstreamRes, res) {
+  res.status(upstreamRes.status);
+  const headersToForward = ["content-type", "transfer-encoding", "cache-control", "x-request-id", "anthropic-version"];
+  for (const name of headersToForward) {
+    const val = upstreamRes.headers.get(name);
+    if (val !== null) res.setHeader(name, val);
+  }
+  if (upstreamRes.body) {
+    Readable.fromWeb(upstreamRes.body).pipe(res);
+  } else {
+    res.end();
+  }
+}
+
+// === Anthropic /anthropic/v1/messages with model rewrite ===
+app.post("/anthropic/v1/messages", async (req, res) => {
+  collectBody(req, (err, bodyBuf) => {
+    if (err) return res.status(400).json({ error: "body_read_error" });
+    let reqBody;
+    try { reqBody = JSON.parse(bodyBuf.toString()); }
+    catch { return res.status(400).json({ error: "invalid_json" }); }
+
+    const originalModel = reqBody.model || "";
+    const rewrittenModel = rewriteModelForUpstream(originalModel);
+    const upstreamUrl = `${UPSTREAM_BASE_URL}/anthropic/v1/messages`;
+    const rewrittenBody = JSON.stringify({ ...reqBody, model: rewrittenModel });
+
+    console.error(`[proxy] /anthropic/v1/messages: ${originalModel} -> ${rewrittenModel}`);
+
+    fetch(upstreamUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${UPSTREAM_API_KEY}`,
+        "x-api-key": UPSTREAM_API_KEY,
+        "Content-Type": "application/json",
+        "anthropic-version": req.get("anthropic-version") || "2023-06-01",
+      },
+      body: rewrittenBody,
+    }).then(upstreamRes => pipeUpstreamResponse(upstreamRes, res))
+      .catch(err => {
+        console.error(`[proxy] /anthropic/v1/messages error: ${err.message}`);
+        if (!res.headersSent) res.status(502).json({ ok: false, error: "upstream_unavailable", detail: err.message });
+      });
+  });
+});
+
+// === Claude CLI /v1/messages (beta=true) with model rewrite ===
+app.post("/v1/messages", async (req, res) => {
+  collectBody(req, (err, bodyBuf) => {
+    if (err) return res.status(400).json({ error: "body_read_error" });
+    let reqBody;
+    try { reqBody = JSON.parse(bodyBuf.toString()); }
+    catch { return res.status(400).json({ error: "invalid_json" }); }
+
+    const originalModel = reqBody.model || "";
+    const rewrittenModel = rewriteModelForUpstream(originalModel);
+    const upstreamUrl = `${UPSTREAM_BASE_URL}/anthropic/v1/messages`;
+    const rewrittenBody = JSON.stringify({ ...reqBody, model: rewrittenModel });
+
+    console.error(`[proxy] /v1/messages (beta): ${originalModel} -> ${rewrittenModel}`);
+
+    fetch(upstreamUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${UPSTREAM_API_KEY}`,
+        "x-api-key": UPSTREAM_API_KEY,
+        "Content-Type": "application/json",
+        "anthropic-version": req.get("anthropic-version") || "2023-06-01",
+      },
+      body: rewrittenBody,
+    }).then(upstreamRes => pipeUpstreamResponse(upstreamRes, res))
+      .catch(err => {
+        console.error(`[proxy] /v1/messages error: ${err.message}`);
+        if (!res.headersSent) res.status(502).json({ ok: false, error: "upstream_unavailable", detail: err.message });
+      });
+  });
 });
 
 app.use("/", createProxyMiddleware({
@@ -269,17 +377,13 @@ app.use("/", createProxyMiddleware({
     proxyReq: (proxyReq, req, res) => {
       proxyReq.setHeader("Authorization", `Bearer ${UPSTREAM_API_KEY}`);
       proxyReq.setHeader("x-api-key", UPSTREAM_API_KEY);
-
       if (!proxyReq.getHeader("anthropic-version")) {
         proxyReq.setHeader("anthropic-version", "2023-06-01");
       }
-
       console.error(`[proxy] ${req.method} ${req.url} -> ${UPSTREAM_BASE_URL}`);
     },
     proxyRes: (proxyRes, req, res) => {
       console.error(`[proxy] response ${proxyRes.statusCode} for ${req.method} ${req.url}`);
-
-      // 非 2xx 时记录上游返回的错误体（前1KB），方便排查 4xx/5xx 问题
       if (proxyRes.statusCode >= 400) {
         const chunks = [];
         proxyRes.on("data", chunk => chunks.push(chunk));
@@ -292,11 +396,7 @@ app.use("/", createProxyMiddleware({
     error: (err, req, res) => {
       console.error(`[proxy] error for ${req.method} ${req.url}: ${err.message}`);
       if (!res.headersSent) {
-        res.status(502).json({
-          ok: false,
-          error: "proxy_upstream_unavailable",
-          detail: err.message
-        });
+        res.status(502).json({ ok: false, error: "proxy_upstream_unavailable", detail: err.message });
       }
     }
   }
@@ -308,24 +408,16 @@ app.listen(PORT, () => {
 });
 ```
 
-说明：
-
-- 不要加 `express.json()`，否则会吃掉 Claude CLI 的请求体
-- 当前 Proxy 会同时发送 `Authorization` 和 `x-api-key`
-- 会自动补 `anthropic-version`
-- `pathRewrite` 统一给所有路径加 `/anthropic` 前缀（VLM 路径不在此处理，由直连解决）
+**关键点说明**：
+- **没有** `express.json()`，用 `collectBody()` 手动收集，避免消费 stream 导致兜底代理 body 为空
+- `pipeUpstreamResponse()` 流式透传上游响应，保留 `Content-Type`、`Transfer-Encoding` 等响应头
+- `rewriteModelForUpstream()` 自动把 `claude-sonnet-4-6` 等映射为上游所需模型名
 
 ---
 
 ## 七、PM2 配置
 
-路径：
-
-```text
-/root/ai-lab/proxy/ecosystem.config.js
-```
-
-当前实际版本：
+路径：`/root/ai-lab/proxy/ecosystem.config.js`
 
 ```js
 module.exports = {
@@ -346,9 +438,8 @@ module.exports = {
 
 说明：
 
-- 真实 Key 通过环境变量注入，不硬编码在文件里
-- `UPSTREAM_BASE_URL` 只配到根域名，`/anthropic` 前缀由 server.js 的 `pathRewrite` 统一添加
-- 如果要切模型，只需要改这里
+- 真实 Key 通过 PM2 启动时的环境变量注入：`export UPSTREAM_API_KEY="你的key" && pm2 start ...`
+- `UPSTREAM_BASE_URL` 只配到根域名，`/anthropic` 前缀由 `pathRewrite` 统一添加
 
 ---
 
@@ -357,15 +448,15 @@ module.exports = {
 ### 1. 创建目录
 
 ```bash
-mkdir -p /root/ai-lab/bridge
-mkdir -p /root/ai-lab/proxy
-mkdir -p /root/workspaces/demo
+mkdir -p /home/claude/ai-lab/bridge
+mkdir -p /home/claude/workspaces/demo
+mkdir -p /root/ai-lab/proxy/logs
 ```
 
 ### 2. 安装 Bridge 依赖
 
 ```bash
-cd /root/ai-lab/bridge
+cd /home/claude/ai-lab/bridge
 npm init -y
 npm install @modelcontextprotocol/sdk zod
 ```
@@ -378,10 +469,10 @@ npm init -y
 npm install express http-proxy-middleware morgan
 ```
 
-### 4. 安装 PM2
+### 4. 修复 session-env 权限（避免 sandbox 错误）
 
 ```bash
-npm install -g pm2
+chown -R claude:claude /home/claude/.claude/
 ```
 
 ---
@@ -391,40 +482,39 @@ npm install -g pm2
 ### 1. 启动 Proxy（由 PM2 管理）
 
 ```bash
-export UPSTREAM_API_KEY="你的真实key"
-pm2 start /root/ai-lab/proxy/ecosystem.config.js
+export UPSTREAM_API_KEY="你的MiniMax API Key"
+cd /root/ai-lab/proxy
+pm2 start ecosystem.config.js
 pm2 save
-pm2 startup
+pm2 startup   # 如果是首次，执行输出命令
 ```
-
-如果 `pm2 startup` 输出一条命令，复制执行即可。
 
 ### 2. 检查 Proxy 状态
 
 ```bash
 pm2 list
 curl http://localhost:3040/healthz
+# → {"ok":true,"upstream":"https://api.minimaxi.com"}
 ```
-
-预期：
-
-- `proxy` 状态为 `online`
-- `healthz` 返回 `ok: true`
 
 ### 3. 启动 OpenClaw
 
-按你当前已有方式启动 OpenClaw。
+```bash
+openclaw
+# 重启以加载 MCP 配置更新
+pkill -f openclaw; sleep 2; openclaw &
+```
 
 ### 4. 检查 bridge 进程
 
 ```bash
-ps -ef | grep -i claude-bridge
+ps -ef | grep "claude-bridge" | grep -v grep
 ```
 
 预期能看到：
 
-```text
-/usr/bin/node /root/ai-lab/bridge/claude-bridge.mjs
+```
+/usr/bin/sudo -u claude env ... /usr/bin/node /home/claude/ai-lab/bridge/claude-bridge.mjs
 ```
 
 ---
@@ -434,190 +524,85 @@ ps -ef | grep -i claude-bridge
 ### A. 直接验证 Claude CLI 走 Proxy
 
 ```bash
+export MINIMAX_API_KEY="你的key"
 export ANTHROPIC_BASE_URL="http://localhost:3040"
-export ANTHROPIC_AUTH_TOKEN="sk-dummy"
+export HOME="/home/claude"
 
-cd /root/workspaces/demo
-claude -p "在当前目录创建 direct_proxy_test.py，写一个 print('direct proxy ok')" \
-  --output-format json \
-  --dangerously-skip-permissions
+claude --bare --print --output-format json -- "echo direct-proxy-ok"
 ```
 
-检查：
-
-```bash
-cat /root/workspaces/demo/direct_proxy_test.py
-```
-
-预期：
-
-```python
-print('direct proxy ok')
-```
+预期输出 JSON 包含 `"result":"direct-proxy-ok"`。
 
 ### B. 验证 OpenClaw 通过 MCP 创建文件
 
-在 OpenClaw 中发送：
-
-```text
-请调用 run_claude，在当前工作目录创建 proxy_test_2.py，写一个 print("proxy ok v2")
-```
-
-检查：
-
 ```bash
-cat /root/workspaces/demo/proxy_test_2.py
-```
-
-预期：
-
-```python
-print("proxy ok v2")
+openclaw agent --agent main --message "用run_claude工具执行: echo openclaw-ok && date" --json --local
 ```
 
 ### C. 查看 Proxy 请求日志
 
 ```bash
 tail -n 20 /root/ai-lab/proxy/logs/access.log
+pm2 logs proxy --lines 20 --nostream
 ```
 
-预期出现：
+预期看到 `POST /v1/messages?beta=true ... 200`，且日志显示 `claude-sonnet-4-6 -> MiniMax-M2.7`。
 
-```text
-POST /v1/messages?beta=true ... 200
+### D. 查看 Bridge 日志
+
+```bash
+tail -n 20 /home/claude/ai-lab/bridge/bridge.log
 ```
 
 ---
 
-## 十一、切换模型的方法
+## 十一、常见问题
 
-只改一个文件：
+### 1. bridge 返回 "Not logged in · Please run /login"
 
-```text
-/root/ai-lab/proxy/ecosystem.config.js
+原因：`sudo` 过滤了 `env:` dict 里的 `ANTHROPIC_API_KEY`，导致 Claude CLI 拿不到 Key。
+
+修复：确认 `openclaw.json` 的 MCP 配置已改为 `sudo -u claude env MINIMAX_API_KEY=...` 格式（见第五节），然后重启 OpenClaw。
+
+### 2. "permission denied, open '/home/claude/ai-lab/bridge/bridge.log'"
+
+原因：目录不存在或属主不对。
+
+修复：
+```bash
+mkdir -p /home/claude/ai-lab/bridge
+touch /home/claude/ai-lab/bridge/bridge.log
+chown claude:claude /home/claude/ai-lab/bridge/bridge.log
 ```
 
-例如切到 MiniMax：
-
-```js
-env: {
-  PORT: "3040",
-  UPSTREAM_BASE_URL: "https://api.minimax.chat/v1/anthropic",
-  UPSTREAM_API_KEY: "你的 MiniMax key"
-}
-```
-
-然后执行：
+### 3. session-env 权限错误
 
 ```bash
-pm2 restart proxy
-pm2 save
-curl http://localhost:3040/healthz
+chown -R claude:claude /home/claude/.claude/
 ```
 
-说明：
-
-- Claude Code 不需要改配置
-- OpenClaw MCP 配置也不需要改
-- 模型切换全部发生在 Proxy 层
-
-### 切换上游模型后的完整验证流程
-
-当你切换到新的上游（例如 MiniMax）时，推荐按下面的完整流程验证：
-
-```bash
-# 1. 先修改 Proxy 配置文件
-nano /root/ai-lab/proxy/ecosystem.config.js
-
-# 2. 让 PM2 重新加载新配置
-pm2 delete proxy
-pm2 start /root/ai-lab/proxy/ecosystem.config.js --update-env
-pm2 save
-
-# 3. 确认 Proxy 已切到新上游
-curl http://localhost:3040/healthz
-pm2 logs proxy --lines 20
-
-# 4. 用 Claude CLI 直测 Proxy
-export ANTHROPIC_BASE_URL="http://localhost:3040"
-export ANTHROPIC_AUTH_TOKEN="sk-dummy"
-
-cd /root/workspaces/demo
-claude -p "创建 minimax_verify.py，写一个 print('minimax ok')" \
-  --output-format json \
-  --dangerously-skip-permissions
-
-# 5. 检查文件是否真实创建
-cat /root/workspaces/demo/minimax_verify.py
-
-# 6. 检查 Proxy 日志里是否有新请求
-tail -n 10 /root/ai-lab/proxy/logs/access.log
-```
-
-### 成功判断标准
-
-你需要同时看到下面三件事：
-
-1. `curl http://localhost:3040/healthz` 返回的新 upstream 已变成你刚配置的地址
-2. `minimax_verify.py` 被真实创建
-3. `access.log` 里出现新的 `POST /v1/messages?beta=true` 请求记录
-
-### 一句话记忆版
-
-**改配置 → 重建 PM2 进程 → 看 healthz → Claude 直测 → 看文件 → 看 access log**
-
-## 十二、常见问题
-
-### 1. `Not logged in · Please run /login`
-
-原因：
-
-- OpenClaw 拉起 bridge 时没有拿到中转环境变量
-
-修复：
-
-- 在 MCP `env` 里显式加入：
-  - `ANTHROPIC_BASE_URL=http://localhost:3040`
-  - `ANTHROPIC_AUTH_TOKEN=sk-dummy`
-
-### 2. `MCP error -32001: Request timed out`
-
-原因：
-
-- Proxy 超时
-- 或之前 `server.js` 错误使用了 `express.json()` 导致请求体被吃掉
-
-修复：
-
-- 删除 `express.json()`
-- 使用当前 `server.js` 版本
-
-### 3. `pm2 list` 中 `proxy` 为 `errored`
-
-原因：
-
-- `UPSTREAM_BASE_URL` 或 `UPSTREAM_API_KEY` 没配置好
-
-修复：
-
-- 检查 `ecosystem.config.js`
-- 执行：
+### 4. `pm2 list` 中 `proxy` 为 `errored`
 
 ```bash
 pm2 logs proxy --lines 50
+# 常见原因：缺少 UPSTREAM_API_KEY 环境变量
+export UPSTREAM_API_KEY="你的key" && pm2 restart proxy
 ```
 
-### 4. `curl http://localhost:3040/healthz` 连不上
+### 5. Claude Code 沙箱阻止写文件
 
-原因：
+Claude Code 安全沙箱只允许在 `CLAUDE_WORK_DIR`（`/home/claude/workspaces/demo`）下写文件，`/tmp/` 等路径会被拒绝。这是正常行为，不是 bug。
 
-- Proxy 未启动或已退出
+---
 
-修复：
+## 十二、清理日志
 
 ```bash
-pm2 restart proxy
-pm2 list
+# bridge 日志
+> /home/claude/ai-lab/bridge/bridge.log
+
+# proxy access 日志
+> /root/ai-lab/proxy/logs/access.log
 ```
 
 ---
@@ -627,185 +612,32 @@ pm2 list
 至少备份：
 
 ```text
-/root/ai-lab/
-/root/workspaces/   （如果要保留项目文件）
-OpenClaw 的 MCP 配置文件
+/home/claude/ai-lab/bridge/         （bridge 代码 + 日志）
+/root/ai-lab/proxy/                   （proxy 代码 + 配置）
+/root/.openclaw/openclaw.json         （MCP 配置）
+/home/claude/workspaces/demo/         （项目文件）
 ```
 
 推荐备份到 Windows：
 
 ```bash
-tar -czvf /mnt/c/Users/litaozhe/Desktop/ai-lab-backup.tar.gz /root/ai-lab
-```
-
-完整备份：
-
-```bash
-tar -czvf /mnt/c/Users/litaozhe/Desktop/full-backup.tar.gz /root/ai-lab /root/workspaces
-```
-
----
-
-## 十四、当前系统状态总结
-
-当前已经实现：
-
-- OpenClaw 调度 Claude Code
-- Claude Code 真实创建本地文件
-- Claude Code 通过 Proxy 调用上游模型（聊天请求走代理）
-- VLM/图片请求走 MiniMax 直连（`MINIMAX_API_HOST`），绕过 proxy
-- Proxy 由 PM2 守护
-- 模型可以通过修改 Proxy 配置切换
-- 真实 Key 通过环境变量注入，不硬编码
-
-一句话概括：
-
-**这是一个”可调度本地执行 + VLM直连 + 可替换模型 + 统一网关控制”的 AI 执行系统。**
-
-
-**可落地的 Proxy 侧 model 重写方案**，按现在的 `server.js`（Node/Express）结构来写。
-
-目标：
-
-> 不改 Claude Code / OpenClaw
-> 👉 **统一在 Proxy 层把 model 改成上游需要的**
-
----
-
-# ✅ 一、最核心代码（直接加）
-
-找到 `server.js` 里处理：
-
-```js
-app.post('/v1/messages', ...)
-```
-
-在**转发到上游之前**，插入这一段：
-
-```js
-// === model rewrite START ===
-try {
-  const originalModel = req.body.model;
-
-  // MiniMax 映射（推荐默认）
-  if (originalModel) {
-    console.log(`[proxy] rewrite model: ${originalModel} -> MiniMax-M2.7`);
-    req.body.model = "MiniMax-M2.7";
-  }
-
-} catch (e) {
-  console.error("[proxy] model rewrite error:", e);
-}
-// === model rewrite END ===
+tar -czvf /mnt/c/Users/litaozhe/Desktop/ai-lab-backup.tar.gz \
+  /home/claude/ai-lab/bridge/ \
+  /root/ai-lab/proxy/ \
+  /root/.openclaw/openclaw.json \
+  /home/claude/workspaces/demo/
 ```
 
 ---
 
-# ✅ 二、如果你想支持“多上游自动切换”（推荐）
+## 十四、关键文件路径汇总
 
-更通用一点，按 upstream 自动判断：
-
-```js
-// === model rewrite START ===
-try {
-  const originalModel = req.body.model;
-  const upstream = process.env.UPSTREAM_BASE_URL || "";
-
-  if (originalModel) {
-    if (upstream.includes("minimax")) {
-      console.log(`[proxy] rewrite model for minimax: ${originalModel} -> MiniMax-M2.7`);
-      req.body.model = "MiniMax-M2.7";
-
-    } else if (upstream.includes("bigmodel")) {
-      console.log(`[proxy] rewrite model for zhipu: ${originalModel} -> glm-4.7`);
-      req.body.model = "glm-4.7";
-
-    } else {
-      console.log(`[proxy] keep original model: ${originalModel}`);
-    }
-  }
-
-} catch (e) {
-  console.error("[proxy] model rewrite error:", e);
-}
-// === model rewrite END ===
-```
-
----
-
-# ✅ 三、改完之后要做的
-
-```bash
-pm2 restart proxy --update-env
-```
-
-然后验证：
-
-```bash
-pm2 logs proxy --lines 20
-```
-
-你应该看到类似：
-
-```text
-[proxy] rewrite model: claude-3-sonnet -> MiniMax-M2.7
-```
-
----
-
-# ✅ 四、验证是否真的生效
-
-再跑：
-
-```bash
-claude -p "创建 rewrite_test.py，写 print('ok')" \
-  --output-format json \
-  --dangerously-skip-permissions
-```
-
-同时看：
-
-```bash
-tail -f /root/ai-lab/proxy/logs/access.log
-```
-
----
-
-# 🧠 这一步的意义（很重要）
-
-做完这个后：
-
-```text
-Claude Code → 永远用 Anthropic 模型名
-Proxy → 自动翻译成 MiniMax / 智谱
-```
-
-👉 你彻底实现了：
-
-> **Claude Code 无感切换上游模型**
-
----
-
-# ⚠️ 注意两个坑
-
-## 1️⃣ 有些请求可能没有 model 字段
-
-所以代码里要判断：
-
-```js
-if (req.body.model)
-```
-
-（我已经帮你加了）
-
----
-
-## 2️⃣ streaming 请求也会走这里
-
-不用额外处理，Claude CLI 的 streaming 也是 POST `/v1/messages`。
-
----
-
-# 🎯 一句话总结
-
-👉 **现在把“模型选择权”完全收回到 Proxy 了。**
+| 文件 | 路径 |
+|------|------|
+| Bridge 代码 | `/home/claude/ai-lab/bridge/claude-bridge.mjs` |
+| Bridge 日志 | `/home/claude/ai-lab/bridge/bridge.log` |
+| Proxy 代码 | `/root/ai-lab/proxy/server.js` |
+| Proxy PM2 配置 | `/root/ai-lab/proxy/ecosystem.config.js` |
+| Proxy 日志目录 | `/root/ai-lab/proxy/logs/` |
+| OpenClaw MCP 配置 | `/root/.openclaw/openclaw.json` |
+| Claude Code 工作目录 | `/home/claude/workspaces/demo` |

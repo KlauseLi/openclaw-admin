@@ -25,11 +25,22 @@ const accessLogStream = fs.createWriteStream(
 
 app.use(morgan("combined", { stream: accessLogStream }));
 
-app.use(express.json({ verify: (req) => { req.rawBody = req.body; }, limit: "10mb" }));
-
 app.get("/healthz", (req, res) => {
   res.json({ ok: true, upstream: UPSTREAM_BASE_URL });
 });
+
+// 手动收集 body，避免 express.json() 消费 stream 导致兜底代理 body 为空
+function collectBody(req, callback) {
+  if (req.body !== undefined) {
+    callback(null, Buffer.from(JSON.stringify(req.body)));
+    return;
+  }
+
+  const chunks = [];
+  req.on("data", (chunk) => chunks.push(chunk));
+  req.on("end", () => callback(null, Buffer.concat(chunks)));
+  req.on("error", callback);
+}
 
 // === MODEL REWRITE helper ===
 function rewriteModelForUpstream(model) {
@@ -39,14 +50,23 @@ function rewriteModelForUpstream(model) {
   return model;
 }
 
-function forwardUpstreamResponse(upstreamRes, res) {
+async function pipeUpstreamResponse(upstreamRes, res) {
   res.status(upstreamRes.status);
 
-  upstreamRes.headers.forEach((value, key) => {
-    if (key.toLowerCase() !== "transfer-encoding") {
-      res.setHeader(key, value);
+  const headersToForward = [
+    "content-type",
+    "transfer-encoding",
+    "cache-control",
+    "x-request-id",
+    "anthropic-version"
+  ];
+
+  for (const name of headersToForward) {
+    const value = upstreamRes.headers.get(name);
+    if (value !== null) {
+      res.setHeader(name, value);
     }
-  });
+  }
 
   if (!upstreamRes.body) {
     res.end();
@@ -56,77 +76,90 @@ function forwardUpstreamResponse(upstreamRes, res) {
   Readable.fromWeb(upstreamRes.body).pipe(res);
 }
 
-function writeProxyRequestBody(proxyReq, req) {
-  if (!req.body || !["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
-    return;
-  }
-
-  const contentType = proxyReq.getHeader("Content-Type") || req.get("content-type") || "";
-  if (!String(contentType).includes("application/json")) {
-    return;
-  }
-
-  const body = JSON.stringify(req.body);
-  proxyReq.setHeader("Content-Length", Buffer.byteLength(body));
-  proxyReq.write(body);
-}
-
 // === Anthropic /anthropic/v1/messages with model rewrite ===
 app.post("/anthropic/v1/messages", async (req, res) => {
-  const originalModel = req.body.model || "";
-  const rewrittenModel = rewriteModelForUpstream(originalModel);
-  const upstreamUrl = `${UPSTREAM_BASE_URL}/anthropic/v1/messages`;
-  const body = JSON.stringify({ ...req.body, model: rewrittenModel });
+  collectBody(req, (err, bodyBuf) => {
+    if (err) {
+      res.status(400).json({ error: "body_read_error" });
+      return;
+    }
 
-  console.error(`[proxy] /anthropic/v1/messages: ${originalModel} -> ${rewrittenModel}`);
+    let reqBody;
+    try {
+      reqBody = JSON.parse(bodyBuf.toString());
+    } catch {
+      res.status(400).json({ error: "invalid_json" });
+      return;
+    }
 
-  try {
-    const upstreamRes = await fetch(upstreamUrl, {
+    const originalModel = reqBody.model || "";
+    const rewrittenModel = rewriteModelForUpstream(originalModel);
+    const upstreamUrl = `${UPSTREAM_BASE_URL}/anthropic/v1/messages`;
+    const rewrittenBody = JSON.stringify({ ...reqBody, model: rewrittenModel });
+
+    console.error(`[proxy] /anthropic/v1/messages: ${originalModel} -> ${rewrittenModel}`);
+
+    fetch(upstreamUrl, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${UPSTREAM_API_KEY}`,
         "x-api-key": UPSTREAM_API_KEY,
         "Content-Type": "application/json",
-        "anthropic-version": req.get("anthropic-version") || "2023-06-01",
+        "anthropic-version": req.get("anthropic-version") || "2023-06-01"
       },
-      body,
-    });
-
-    console.error(`[proxy] upstream status=${upstreamRes.status}`);
-    forwardUpstreamResponse(upstreamRes, res);
-  } catch (err) {
-    console.error(`[proxy] /anthropic/v1/messages error: ${err.message}`);
-    res.status(502).json({ ok: false, error: "upstream_unavailable", detail: err.message });
-  }
+      body: rewrittenBody
+    })
+      .then((upstreamRes) => pipeUpstreamResponse(upstreamRes, res))
+      .catch((fetchErr) => {
+        console.error(`[proxy] /anthropic/v1/messages error: ${fetchErr.message}`);
+        if (!res.headersSent) {
+          res.status(502).json({ ok: false, error: "upstream_unavailable", detail: fetchErr.message });
+        }
+      });
+  });
 });
 
 // === Claude CLI /v1/messages (beta=true) with model rewrite ===
 app.post("/v1/messages", async (req, res) => {
-  const originalModel = req.body.model || "";
-  const rewrittenModel = rewriteModelForUpstream(originalModel);
-  const upstreamUrl = `${UPSTREAM_BASE_URL}/anthropic/v1/messages`;
-  const body = JSON.stringify({ ...req.body, model: rewrittenModel });
+  collectBody(req, (err, bodyBuf) => {
+    if (err) {
+      res.status(400).json({ error: "body_read_error" });
+      return;
+    }
 
-  console.error(`[proxy] /v1/messages (beta): ${originalModel} -> ${rewrittenModel}`);
+    let reqBody;
+    try {
+      reqBody = JSON.parse(bodyBuf.toString());
+    } catch {
+      res.status(400).json({ error: "invalid_json" });
+      return;
+    }
 
-  try {
-    const upstreamRes = await fetch(upstreamUrl, {
+    const originalModel = reqBody.model || "";
+    const rewrittenModel = rewriteModelForUpstream(originalModel);
+    const upstreamUrl = `${UPSTREAM_BASE_URL}/anthropic/v1/messages`;
+    const rewrittenBody = JSON.stringify({ ...reqBody, model: rewrittenModel });
+
+    console.error(`[proxy] /v1/messages (beta): ${originalModel} -> ${rewrittenModel}`);
+
+    fetch(upstreamUrl, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${UPSTREAM_API_KEY}`,
         "x-api-key": UPSTREAM_API_KEY,
         "Content-Type": "application/json",
-        "anthropic-version": req.get("anthropic-version") || "2023-06-01",
+        "anthropic-version": req.get("anthropic-version") || "2023-06-01"
       },
-      body,
-    });
-
-    console.error(`[proxy] upstream status=${upstreamRes.status}`);
-    forwardUpstreamResponse(upstreamRes, res);
-  } catch (err) {
-    console.error(`[proxy] /v1/messages error: ${err.message}`);
-    res.status(502).json({ ok: false, error: "upstream_unavailable", detail: err.message });
-  }
+      body: rewrittenBody
+    })
+      .then((upstreamRes) => pipeUpstreamResponse(upstreamRes, res))
+      .catch((fetchErr) => {
+        console.error(`[proxy] /v1/messages error: ${fetchErr.message}`);
+        if (!res.headersSent) {
+          res.status(502).json({ ok: false, error: "upstream_unavailable", detail: fetchErr.message });
+        }
+      });
+  });
 });
 
 app.use("/", createProxyMiddleware({
@@ -144,8 +177,6 @@ app.use("/", createProxyMiddleware({
       if (!proxyReq.getHeader("anthropic-version")) {
         proxyReq.setHeader("anthropic-version", "2023-06-01");
       }
-
-      writeProxyRequestBody(proxyReq, req);
 
       console.error(`[proxy] ${req.method} ${req.url} -> ${UPSTREAM_BASE_URL}`);
     },

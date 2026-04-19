@@ -5,9 +5,9 @@ import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 
-const WORK_DIR = process.env.CLAUDE_WORK_DIR || "/root/workspaces/demo";
+const WORK_DIR = process.env.CLAUDE_WORK_DIR || "/home/claude/workspaces/demo";
 const TIMEOUT  = parseInt(process.env.CLAUDE_TIMEOUT || "300000", 10);
-const LOG_FILE = "/root/ai-lab/bridge/bridge.log";
+const LOG_FILE = "/home/claude/ai-lab/bridge/bridge.log";
 
 function ensureLogDir(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -31,15 +31,24 @@ server.tool(
     log(`tool called, cwd=${WORK_DIR}, prompt=${JSON.stringify(prompt)}`);
 
     return new Promise((resolve) => {
-      const child = spawn("claude", [
-        "-p", prompt,
-        "--output-format", "json",
-        "--dangerously-skip-permissions",
-        "--bare"
+      const child = spawn("/usr/bin/claude", [
+        "--bare",
+        "-p",
+        prompt,
+        "--output-format",
+        "json"
       ], {
         cwd: WORK_DIR,
         timeout: TIMEOUT,
-        env: { ...process.env }
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          HOME: "/home/claude",
+          USER: "claude",
+          LOGNAME: "claude",
+          PATH: process.env.PATH,
+          ANTHROPIC_API_KEY: process.env.MINIMAX_API_KEY || "",
+          ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL || "http://localhost:3040"
+        }
       });
 
       let stdout = "";
