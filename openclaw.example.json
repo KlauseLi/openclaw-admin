@@ -1,0 +1,158 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "/root/.openclaw/workspace",
+      "models": {
+        "openai-codex/gpt-5.4": {},
+        "minimax-cn/MiniMax-M2.7": {}
+      },
+      "model": {
+        "primary": "minimax-cn/MiniMax-M2.7"
+      },
+      "imageGenerationModel": {
+        "primary": "minimax/image-01"
+      },
+      "compaction": {
+        "mode": "safeguard"
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "replace-with-secure-token"
+    },
+    "port": 18789,
+    "bind": "loopback",
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    },
+    "controlUi": {
+      "allowInsecureAuth": true
+    },
+    "nodes": {
+      "denyCommands": [
+        "camera.snap",
+        "camera.clip",
+        "screen.record",
+        "contacts.add",
+        "calendar.add",
+        "reminders.add",
+        "sms.send",
+        "sms.search"
+      ]
+    }
+  },
+  "session": {
+    "dmScope": "per-channel-peer"
+  },
+  "tools": {
+    "profile": "full",
+    "elevated": {
+      "enabled": true,
+      "allowFrom": {
+        "feishu": [
+          "replace-with-feishu-user-id"
+        ],
+        "exec-event": [
+          "replace-with-feishu-user-id"
+        ]
+      }
+    }
+  },
+  "auth": {
+    "profiles": {
+      "openai-codex:your-email@example.com": {
+        "provider": "openai-codex",
+        "mode": "oauth",
+        "email": "your-email@example.com"
+      },
+      "openai:default": {
+        "provider": "openai",
+        "mode": "api_key"
+      },
+      "minimax-cn:default": {
+        "provider": "minimax-cn",
+        "mode": "api_key"
+      }
+    }
+  },
+  "plugins": {
+    "entries": {
+      "openai": {
+        "enabled": true
+      },
+      "feishu": {
+        "enabled": false
+      },
+      "openclaw-lark": {
+        "enabled": true
+      },
+      "minimax": {
+        "enabled": true
+      },
+      "openclaw-weixin": {
+        "enabled": true
+      }
+    },
+    "allow": [
+      "openclaw-lark",
+      "openai",
+      "memory-core",
+      "minimax",
+      "openclaw-weixin"
+    ]
+  },
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "appId": "replace-with-feishu-app-id",
+      "appSecret": "replace-with-feishu-app-secret",
+      "connectionMode": "websocket",
+      "domain": "feishu",
+      "webhookPath": "/feishu/events",
+      "dmPolicy": "allowlist",
+      "groupPolicy": "open",
+      "reactionNotifications": "own",
+      "typingIndicator": true,
+      "resolveSenderNames": true,
+      "allowFrom": [
+        "replace-with-feishu-user-id"
+      ],
+      "requireMention": true,
+      "streaming": true,
+      "topicSessionMode": "thread"
+    },
+    "openclaw-weixin": {}
+  },
+  "mcp": {
+    "servers": {
+      "claude-bridge": {
+        "command": "/usr/bin/sudo",
+        "args": [
+          "-u",
+          "claude",
+          "env",
+          "MINIMAX_API_KEY=${MINIMAX_API_KEY}",
+          "MINIMAX_API_HOST=${MINIMAX_API_HOST}",
+          "HOME=/home/claude",
+          "ANTHROPIC_BASE_URL=http://localhost:3040",
+          "/usr/bin/node",
+          "/home/claude/ai-lab/bridge/claude-bridge.mjs"
+        ],
+        "type": "stdio",
+        "env": {
+          "HOME": "/home/claude",
+          "USER": "claude",
+          "LOGNAME": "claude",
+          "CLAUDE_WORK_DIR": "/home/claude/workspaces/demo",
+          "CLAUDE_TIMEOUT": "300000",
+          "MINIMAX_API_KEY": "${MINIMAX_API_KEY}",
+          "MINIMAX_API_HOST": "${MINIMAX_API_HOST}"
+        }
+      }
+    }
+  }
+}

@@ -12,11 +12,13 @@
 ## 一、当前实际架构
 
 ```text
-OpenClaw
-  -> MCP: claude-bridge
-  -> Claude Code CLI
-  -> Proxy (http://localhost:3040)
-  -> 上游模型 (当前是 lanyiapi)
+VLM/图片请求: OpenClaw -> MiniMax 直连 (MINIMAX_API_HOST)
+                绕过 proxy，不经过 localhost:3040
+
+普通聊天请求: OpenClaw -> MCP: claude-bridge
+                   -> Claude Code CLI
+                   -> Proxy (http://localhost:3040)
+                   -> MiniMax (/anthropic/v1/messages)
 ```
 
 说明：
@@ -24,8 +26,10 @@ OpenClaw
 - OpenClaw 负责调度
 - `claude-bridge.mjs` 是 MCP 工具服务
 - Claude Code 负责真实执行文件操作
-- Proxy 统一持有真实上游 Key
+- Proxy 统一持有真实上游 Key，只处理聊天请求
 - Claude Code 只使用 dummy token 连接本地 Proxy
+- **VLM/图片请求走 MiniMax 直连**，由 `MINIMAX_API_HOST` 环境变量控制，绕过 proxy
+  - 原因：MiniMax VLM 端点路径为 `/v1/coding_plan/vlm`（无 `/anthropic` 前缀），与聊天路径格式不同，走直连更简单
 
 ---
 
@@ -164,7 +168,13 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+log("bridge: transport connected, waiting for messages...");
+await new Promise(r => setTimeout(r, 200));
+log("bridge: transport closed");
+process.exit(0);
 ```
+
+> ⚠️ **特别注意**：`sudo -u claude` 切换用户时 stdin pipe 存在短暂"真空期"，transport 在此期间收到的数据会被静默丢弃导致 `Connection closed`。因此在 `await server.connect()` 后加 200ms 延迟，让 pipe 完全就绪后再退出。
 
 ---
 
@@ -254,7 +264,7 @@ app.use("/", createProxyMiddleware({
   ws: true,
   proxyTimeout: 300000,
   timeout: 300000,
-  pathRewrite: (pathReq) => pathReq,
+  pathRewrite: (pathReq) => `/anthropic${pathReq}`,
   on: {
     proxyReq: (proxyReq, req, res) => {
       proxyReq.setHeader("Authorization", `Bearer ${UPSTREAM_API_KEY}`);
@@ -268,6 +278,16 @@ app.use("/", createProxyMiddleware({
     },
     proxyRes: (proxyRes, req, res) => {
       console.error(`[proxy] response ${proxyRes.statusCode} for ${req.method} ${req.url}`);
+
+      // 非 2xx 时记录上游返回的错误体（前1KB），方便排查 4xx/5xx 问题
+      if (proxyRes.statusCode >= 400) {
+        const chunks = [];
+        proxyRes.on("data", chunk => chunks.push(chunk));
+        proxyRes.on("end", () => {
+          const body = Buffer.concat(chunks).toString().slice(0, 1000);
+          console.error(`[proxy] upstream error body (${proxyRes.statusCode}): ${body}`);
+        });
+      }
     },
     error: (err, req, res) => {
       console.error(`[proxy] error for ${req.method} ${req.url}: ${err.message}`);
@@ -293,6 +313,7 @@ app.listen(PORT, () => {
 - 不要加 `express.json()`，否则会吃掉 Claude CLI 的请求体
 - 当前 Proxy 会同时发送 `Authorization` 和 `x-api-key`
 - 会自动补 `anthropic-version`
+- `pathRewrite` 统一给所有路径加 `/anthropic` 前缀（VLM 路径不在此处理，由直连解决）
 
 ---
 
@@ -315,8 +336,8 @@ module.exports = {
       cwd: "/root/ai-lab/proxy",
       env: {
         PORT: "3040",
-        UPSTREAM_BASE_URL: "https://lanyiapi.com",
-        UPSTREAM_API_KEY: "你的真实key"
+        UPSTREAM_BASE_URL: "https://api.minimaxi.com",
+        UPSTREAM_API_KEY: process.env.UPSTREAM_API_KEY
       }
     }
   ]
@@ -325,7 +346,8 @@ module.exports = {
 
 说明：
 
-- 真实 Key 只保存在这里
+- 真实 Key 通过环境变量注入，不硬编码在文件里
+- `UPSTREAM_BASE_URL` 只配到根域名，`/anthropic` 前缀由 server.js 的 `pathRewrite` 统一添加
 - 如果要切模型，只需要改这里
 
 ---
@@ -369,6 +391,7 @@ npm install -g pm2
 ### 1. 启动 Proxy（由 PM2 管理）
 
 ```bash
+export UPSTREAM_API_KEY="你的真实key"
 pm2 start /root/ai-lab/proxy/ecosystem.config.js
 pm2 save
 pm2 startup
@@ -629,11 +652,160 @@ tar -czvf /mnt/c/Users/litaozhe/Desktop/full-backup.tar.gz /root/ai-lab /root/wo
 
 - OpenClaw 调度 Claude Code
 - Claude Code 真实创建本地文件
-- Claude Code 通过 Proxy 调用上游模型
+- Claude Code 通过 Proxy 调用上游模型（聊天请求走代理）
+- VLM/图片请求走 MiniMax 直连（`MINIMAX_API_HOST`），绕过 proxy
 - Proxy 由 PM2 守护
 - 模型可以通过修改 Proxy 配置切换
+- 真实 Key 通过环境变量注入，不硬编码
 
 一句话概括：
 
-**这是一个“可调度本地执行 + 可替换模型 + 统一网关控制”的 AI 执行系统。**
+**这是一个”可调度本地执行 + VLM直连 + 可替换模型 + 统一网关控制”的 AI 执行系统。**
 
+
+**可落地的 Proxy 侧 model 重写方案**，按现在的 `server.js`（Node/Express）结构来写。
+
+目标：
+
+> 不改 Claude Code / OpenClaw
+> 👉 **统一在 Proxy 层把 model 改成上游需要的**
+
+---
+
+# ✅ 一、最核心代码（直接加）
+
+找到 `server.js` 里处理：
+
+```js
+app.post('/v1/messages', ...)
+```
+
+在**转发到上游之前**，插入这一段：
+
+```js
+// === model rewrite START ===
+try {
+  const originalModel = req.body.model;
+
+  // MiniMax 映射（推荐默认）
+  if (originalModel) {
+    console.log(`[proxy] rewrite model: ${originalModel} -> MiniMax-M2.7`);
+    req.body.model = "MiniMax-M2.7";
+  }
+
+} catch (e) {
+  console.error("[proxy] model rewrite error:", e);
+}
+// === model rewrite END ===
+```
+
+---
+
+# ✅ 二、如果你想支持“多上游自动切换”（推荐）
+
+更通用一点，按 upstream 自动判断：
+
+```js
+// === model rewrite START ===
+try {
+  const originalModel = req.body.model;
+  const upstream = process.env.UPSTREAM_BASE_URL || "";
+
+  if (originalModel) {
+    if (upstream.includes("minimax")) {
+      console.log(`[proxy] rewrite model for minimax: ${originalModel} -> MiniMax-M2.7`);
+      req.body.model = "MiniMax-M2.7";
+
+    } else if (upstream.includes("bigmodel")) {
+      console.log(`[proxy] rewrite model for zhipu: ${originalModel} -> glm-4.7`);
+      req.body.model = "glm-4.7";
+
+    } else {
+      console.log(`[proxy] keep original model: ${originalModel}`);
+    }
+  }
+
+} catch (e) {
+  console.error("[proxy] model rewrite error:", e);
+}
+// === model rewrite END ===
+```
+
+---
+
+# ✅ 三、改完之后要做的
+
+```bash
+pm2 restart proxy --update-env
+```
+
+然后验证：
+
+```bash
+pm2 logs proxy --lines 20
+```
+
+你应该看到类似：
+
+```text
+[proxy] rewrite model: claude-3-sonnet -> MiniMax-M2.7
+```
+
+---
+
+# ✅ 四、验证是否真的生效
+
+再跑：
+
+```bash
+claude -p "创建 rewrite_test.py，写 print('ok')" \
+  --output-format json \
+  --dangerously-skip-permissions
+```
+
+同时看：
+
+```bash
+tail -f /root/ai-lab/proxy/logs/access.log
+```
+
+---
+
+# 🧠 这一步的意义（很重要）
+
+做完这个后：
+
+```text
+Claude Code → 永远用 Anthropic 模型名
+Proxy → 自动翻译成 MiniMax / 智谱
+```
+
+👉 你彻底实现了：
+
+> **Claude Code 无感切换上游模型**
+
+---
+
+# ⚠️ 注意两个坑
+
+## 1️⃣ 有些请求可能没有 model 字段
+
+所以代码里要判断：
+
+```js
+if (req.body.model)
+```
+
+（我已经帮你加了）
+
+---
+
+## 2️⃣ streaming 请求也会走这里
+
+不用额外处理，Claude CLI 的 streaming 也是 POST `/v1/messages`。
+
+---
+
+# 🎯 一句话总结
+
+👉 **现在把“模型选择权”完全收回到 Proxy 了。**
