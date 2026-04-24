@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 SKILL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DEFAULT_WORKDIR="/home/claude/workspaces/demo"
+DEFAULT_WORKDIR_CANDIDATE="${CLAUDE_WORK_DIR:-/home/claude/workspaces/demo}"
 JOBS_DIR="${CLAUDE_JOBS_DIR:-/root/.openclaw/workspace/memory/claude-jobs}"
 PENDING_JOBS_FILE="${PENDING_JOBS_FILE:-/root/.openclaw/workspace/memory/pending_jobs.md}"
 RESULT_PREVIEW_CHARS="${RESULT_PREVIEW_CHARS:-4000}"
@@ -34,6 +34,20 @@ timestamp_utc() {
 ensure_jobs_dir() {
   mkdir -p "$JOBS_DIR"
   mkdir -p "$(dirname "$PENDING_JOBS_FILE")"
+}
+
+resolve_default_workdir() {
+  if [[ -d "$DEFAULT_WORKDIR_CANDIDATE" ]]; then
+    printf "%s\n" "$DEFAULT_WORKDIR_CANDIDATE"
+    return
+  fi
+
+  if [[ -d "/home/claude/workspaces" ]]; then
+    printf "%s\n" "/home/claude/workspaces"
+    return
+  fi
+
+  printf "%s\n" "/home/claude"
 }
 
 job_meta_path() {
@@ -112,21 +126,54 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 max_chars = int(sys.argv[2])
-text = path.read_text(encoding="utf-8", errors="replace")
+text = path.read_text(encoding="utf-8", errors="replace").strip()
 if len(text) > max_chars:
     text = text[:max_chars] + "..."
 sys.stdout.write(text)
 PY
 }
 
+parse_result_from_file() {
+  local file_path="$1"
+
+  if [[ ! -f "$file_path" ]]; then
+    return
+  fi
+
+  python3 - "$file_path" "$RESULT_PREVIEW_CHARS" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+max_chars = int(sys.argv[2])
+text = path.read_text(encoding="utf-8", errors="replace")
+
+parsed = ""
+try:
+    data = json.loads(text)
+    if isinstance(data, dict):
+        parsed = data.get("result", "") or ""
+except Exception:
+    parsed = text
+
+parsed = parsed.strip()
+if len(parsed) > max_chars:
+    parsed = parsed[:max_chars] + "..."
+
+sys.stdout.write(parsed)
+PY
+}
+
 emit_job_json() {
   local detail_level="${1:-status}"
-  local stdout_path stderr_path stdout_preview stderr_preview stdout_full stderr_full
+  local stdout_path stderr_path stdout_preview stderr_preview stdout_full stderr_full parsed_result
 
   stdout_path="$(job_stdout_path "$JOB_ID")"
   stderr_path="$(job_stderr_path "$JOB_ID")"
   stdout_preview="$(preview_file "$stdout_path")"
   stderr_preview="$(preview_file "$stderr_path")"
+  parsed_result="$(parse_result_from_file "$stdout_path")"
   stdout_full=""
   stderr_full=""
 
@@ -142,6 +189,7 @@ emit_job_json() {
   export JOB_ID STATUS CREATED_AT STARTED_AT FINISHED_AT WORKDIR PID EXIT_CODE SIGNAL CANCELLED_AT PROMPT
   export STDOUT_PATH="$stdout_path" STDERR_PATH="$stderr_path"
   export STDOUT_PREVIEW="$stdout_preview" STDERR_PREVIEW="$stderr_preview"
+  export PARSED_RESULT="$parsed_result"
   export STDOUT_FULL="$stdout_full" STDERR_FULL="$stderr_full"
   export DETAIL_LEVEL="$detail_level"
 
@@ -161,6 +209,7 @@ payload = {
     "signal": os.environ.get("SIGNAL", "") or None,
     "cancelled_at": os.environ.get("CANCELLED_AT", "") or None,
     "prompt": os.environ.get("PROMPT", ""),
+    "parsed_result": os.environ.get("PARSED_RESULT", ""),
     "stdout_path": os.environ.get("STDOUT_PATH", ""),
     "stderr_path": os.environ.get("STDERR_PATH", ""),
     "stdout_preview": os.environ.get("STDOUT_PREVIEW", ""),
@@ -201,10 +250,13 @@ emit_list_json() {
     stderr_path="$(job_stderr_path "$JOB_ID")"
     stdout_preview="$(preview_file "$stdout_path")"
     stderr_preview="$(preview_file "$stderr_path")"
+    local parsed_result
+    parsed_result="$(parse_result_from_file "$stdout_path")"
 
     export JOB_ID STATUS CREATED_AT STARTED_AT FINISHED_AT WORKDIR PID EXIT_CODE SIGNAL CANCELLED_AT PROMPT
     export STDOUT_PATH="$stdout_path" STDERR_PATH="$stderr_path"
     export STDOUT_PREVIEW="$stdout_preview" STDERR_PREVIEW="$stderr_preview"
+    export PARSED_RESULT="$parsed_result"
 
     if [[ "$first" -eq 0 ]]; then
       printf ",\n"
@@ -225,6 +277,7 @@ payload = {
     "exit_code": int(os.environ["EXIT_CODE"]) if os.environ.get("EXIT_CODE", "").lstrip("-").isdigit() else None,
     "signal": os.environ.get("SIGNAL", "") or None,
     "cancelled_at": os.environ.get("CANCELLED_AT", "") or None,
+    "parsed_result": os.environ.get("PARSED_RESULT", ""),
     "stdout_path": os.environ.get("STDOUT_PATH", ""),
     "stderr_path": os.environ.get("STDERR_PATH", ""),
     "stdout_preview": os.environ.get("STDOUT_PREVIEW", ""),
@@ -248,7 +301,31 @@ run_as_claude() {
   escaped_workdir="$(shell_escape "$workdir")"
   escaped_prompt="$(shell_escape "$prompt")"
   safe_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-  su - claude -c "env -i HOME=/home/claude USER=claude LOGNAME=claude SHELL=/bin/bash TERM=xterm-256color PATH=$safe_path bash -lc 'cd $escaped_workdir && claude --print --permission-mode bypassPermissions $escaped_prompt'"
+  su - claude -c "env -i HOME=/home/claude USER=claude LOGNAME=claude SHELL=/bin/bash TERM=xterm-256color PATH=$safe_path CLAUDE_CODE_HOST_PLATFORM=linux bash -lc 'cd $escaped_workdir && claude --print --permission-mode bypassPermissions $escaped_prompt'"
+}
+
+parse_prompt_and_workdir_args() {
+  WORKDIR="$(resolve_default_workdir)"
+  PROMPT=""
+  local parts=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -w|--workdir)
+        shift
+        [[ $# -gt 0 ]] || usage
+        WORKDIR="$1"
+        ;;
+      *)
+        parts+=("$1")
+        ;;
+    esac
+    shift || true
+  done
+
+  if [[ "${#parts[@]}" -gt 0 ]]; then
+    PROMPT="${parts[*]}"
+  fi
 }
 
 cmd_sync() {
@@ -296,7 +373,7 @@ cmd_async() {
 
 cmd_worker() {
   local job_id="$1"
-  local stdout_path stderr_path exit_file exit_code signal
+  local stdout_path stderr_path exit_file exit_code signal run_pid
 
   ensure_jobs_dir
   load_meta "$job_id" || exit 1
@@ -311,8 +388,24 @@ cmd_worker() {
   write_meta
   append_pending_log "job=$job_id status=running pid=$PID"
 
+  worker_cancel() {
+    load_meta "$job_id" || true
+    STATUS="cancelling"
+    CANCELLED_AT="${CANCELLED_AT:-$(timestamp_utc)}"
+    write_meta
+
+    if [[ -n "${run_pid:-}" ]]; then
+      kill -TERM "$run_pid" 2>/dev/null || true
+      kill -TERM -- "-$run_pid" 2>/dev/null || true
+    fi
+  }
+
+  trap worker_cancel TERM INT
+
   set +e
-  run_as_claude "$WORKDIR" "$PROMPT" >"$stdout_path" 2>"$stderr_path"
+  setsid bash -c "$(declare -f shell_escape run_as_claude); run_as_claude $(shell_escape "$WORKDIR") $(shell_escape "$PROMPT")" >"$stdout_path" 2>"$stderr_path" &
+  run_pid=$!
+  wait "$run_pid"
   exit_code=$?
   set -e
   printf "%s\n" "$exit_code" > "$exit_file"
@@ -391,23 +484,11 @@ shift || true
 
 case "$MODE" in
   sync)
-    PROMPT="${1:-}"
-    WORKDIR="$DEFAULT_WORKDIR"
-    shift || true
-    if [[ "${1:-}" == "-w" ]]; then
-      WORKDIR="${2:-}"
-      [[ -n "$WORKDIR" ]] || usage
-    fi
+    parse_prompt_and_workdir_args "$@"
     cmd_sync "$PROMPT" "$WORKDIR"
     ;;
   async)
-    PROMPT="${1:-}"
-    WORKDIR="$DEFAULT_WORKDIR"
-    shift || true
-    if [[ "${1:-}" == "-w" ]]; then
-      WORKDIR="${2:-}"
-      [[ -n "$WORKDIR" ]] || usage
-    fi
+    parse_prompt_and_workdir_args "$@"
     cmd_async "$PROMPT" "$WORKDIR"
     ;;
   status)
