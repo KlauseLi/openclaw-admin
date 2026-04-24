@@ -1,10 +1,10 @@
 # OpenClaw + Claude Code + Proxy 可执行操作指南
 
-这份指南基于当前已跑通的真实版本整理，目标是：
+这份指南基于当前已跑通的真实版本整理。当前主方向已经从 `claude-bridge` 切到 `skill script / exec 直调 Claude Code`，bridge 只保留为历史参考。
 
-- OpenClaw 通过 MCP 调用 Claude Code
+- OpenClaw 通过 skill script / exec 调用 Claude Code
 - Claude Code 在本地真实创建 / 修改文件
-- Claude Code 通过本地 Proxy 访问上游模型
+- 需要代理的聊天请求通过本地 Proxy 访问上游模型
 - Proxy 由 PM2 守护，避免终端关闭后掉线
 
 ---
@@ -15,30 +15,42 @@
 VLM/图片请求: OpenClaw -> MiniMax 直连 (MINIMAX_API_HOST)
                 绕过 proxy，不经过 localhost:3040
 
-普通聊天请求: OpenClaw -> MCP: claude-bridge (sudo -u claude)
-                   -> Claude Code CLI (/usr/bin/claude --bare -p ...)
-                   -> Proxy (http://localhost:3040, model rewrite)
-                   -> MiniMax (/anthropic/v1/messages)
+Claude Code 执行请求: OpenClaw
+                     -> skill script / exec
+                     -> su - claude
+                     -> Claude Code CLI
+
+需要代理的聊天请求: Claude Code
+                     -> Proxy (http://localhost:3040, model rewrite)
+                     -> MiniMax (/anthropic/v1/messages)
 ```
 
 说明：
 
 - OpenClaw 负责调度
-- `claude-bridge.mjs` 是 MCP 工具服务，以 `claude` 用户身份运行（通过 `sudo -u claude env ...` 注入环境变量）
-- Claude Code 负责真实执行文件操作（沙箱限制：只能写 `CLAUDE_WORK_DIR` 下的文件）
-- Proxy 统一持有真实上游 Key，处理聊天请求，同时做 model rewrite（`claude-sonnet-4-6` → `MiniMax-M2.7`）
+- `skills/claude-code/scripts/run.sh` 是当前推荐入口，通过 `su - claude` 执行 Claude Code
+- Claude Code 负责真实执行文件操作（沙箱限制：只能写工作目录下的文件）
+- Proxy 只处理需要代理的聊天请求，同时做 model rewrite（`claude-sonnet-4-6` → `MiniMax-M2.7`）
 - **VLM/图片请求走 MiniMax 直连**，由 `MINIMAX_API_HOST` 环境变量控制，绕过 proxy
+- `bridge/` 不再作为生产方案继续扩展，避免把本来不该走 proxy 的请求卷入旧链路
 
 ---
 
 ## 二、当前目录结构
 
 ```text
-/home/claude/ai-lab/
-  └── bridge/
-      ├── claude-bridge.mjs
-      ├── bridge.log
-      └── node_modules/
+/root/.openclaw/workspace/
+  └── skills/
+      └── claude-code/
+          ├── SKILL.md
+          └── scripts/
+              └── run.sh
+
+/home/claude/
+  ├── .claude/
+  │   └── settings.json
+  ├── .claude.json
+  └── workspaces/demo/
 
 /root/ai-lab/
   └── proxy/
@@ -47,9 +59,25 @@ VLM/图片请求: OpenClaw -> MiniMax 直连 (MINIMAX_API_HOST)
       ├── logs/
       │   └── access.log
       └── node_modules/
-
-/home/claude/workspaces/demo/     ← Claude Code 的 WORK_DIR
+/root/.openclaw/workspace/memory/  ← 后续 async job 状态建议落这里
 ```
+
+仓库内建议同步保持的骨架：
+
+```text
+skills/
+  └── claude-code/
+      ├── SKILL.md
+      └── scripts/
+          └── run.sh
+
+bridge/   ← deprecated reference only
+proxy/
+```
+
+> 说明：
+> 从本节开始，后面仍保留了一批旧的 `bridge` 配置、日志和验证内容，主要用于历史对照与迁移参考。
+> 它们不再代表当前推荐生产方案。后续如果继续整理文档，应优先把这些章节逐步替换成 `skills/claude-code/scripts/run.sh` 的实际用法。
 
 ---
 
@@ -595,7 +623,98 @@ Claude Code 安全沙箱只允许在 `CLAUDE_WORK_DIR`（`/home/claude/workspace
 
 ---
 
-## 十二、清理日志
+## 十二、已知局限
+
+### 1. `run_claude` 适合短任务，不适合长时间执行任务
+
+当前链路里存在两层超时：
+
+- OpenClaw 调用 MCP 工具时，工具层本身有一层较短超时
+- `claude-bridge.mjs` 内部还有一层 `CLAUDE_TIMEOUT`，当前示例是 `300000` 毫秒
+
+已确认的真实行为是：
+
+- 如果 Claude Code 实际任务执行时间较长，OpenClaw 这一层可能会先超时返回
+- 这时底层 `claude` 进程不一定会立刻停止，可能还会继续跑
+- 但 OpenClaw 侧已经拿不到最终结果，所以用户看到的是 MCP tool 超时
+
+这不是网络问题，也不是 Proxy 超时主导，而是 OpenClaw 当前 MCP 工具层的调用时限比 bridge 内部超时更短。
+
+### 2. 当前适合的任务类型
+
+适合：
+
+- 简短 shell 命令
+- 简单文件创建或小范围修改
+- 几十秒内能完成的任务
+
+不适合：
+
+- 长时间代码扫描
+- 大规模文件改写
+- 需要长时间跑测试、构建、安装依赖的任务
+
+### 3. 现阶段的应对方式
+
+- 把任务拆小，优先让每次 `run_claude` 调用在较短时间内完成
+- 把“分析”和“执行”拆成多次调用，不要一次塞进太长流程
+- 如果任务天然是长任务，目前需要 OpenClaw 层面支持更长的 MCP tool 超时，或者改走别的执行通道
+
+一句话总结：
+
+**这套方案当前更适合短任务调度，不适合把长时间执行完全挂在一次 MCP tool 调用里。**
+
+### 4. 已实现的异步替代方案
+
+为了解决“OpenClaw MCP tool 先超时，但底层 Claude 任务还在继续跑”的问题，当前 `bridge/claude-bridge.mjs` 已经补上了一套异步任务工具：
+
+- `run_claude`
+  继续保留，用于几十秒内能完成的短任务。
+
+- `run_claude_async`
+  启动后台 Claude 任务，立即返回 `job_id`。
+
+- `get_claude_job`
+  查询任务状态，典型状态包括 `running`、`succeeded`、`failed`、`cancelled`、`timed_out`。
+
+- `read_claude_job_result`
+  读取任务最终结果、stdout、stderr 和解析后的 `parsed_result`。
+
+- `cancel_claude_job`
+  取消正在运行的后台任务。
+
+- `list_claude_jobs`
+  查看最近的任务列表和历史状态。
+
+推荐调用方式：
+
+1. 短任务继续直接调用 `run_claude`
+2. 长任务先调 `run_claude_async`
+3. 拿到 `job_id` 后，轮询 `get_claude_job`
+4. 状态结束后，再调 `read_claude_job_result`
+5. 如需中止，调用 `cancel_claude_job`
+
+这套方式的关键点不是“拉长单次 MCP tool 超时”，而是把长任务从“单次同步调用”改成“启动 + 轮询 + 取结果”的异步模型。
+
+### 5. 当前验证结果
+
+已在 WSL 环境中用 SDK 直连方式验证通过以下场景：
+
+- `run_claude` 短任务成功返回
+- `run_claude_async` 可启动后台任务并轮询到 `succeeded`
+- `read_claude_job_result` 可读到最终 `parsed_result`
+- `cancel_claude_job` 可将运行中任务变成 `cancelled`
+
+仓库里保留了一个可复用的验证脚本：
+
+```bash
+cd /home/claude/ai-lab/bridge
+node test-async-bridge.mjs
+```
+
+---
+
+## 十三、清理日志
 
 ```bash
 # bridge 日志
@@ -607,7 +726,7 @@ Claude Code 安全沙箱只允许在 `CLAUDE_WORK_DIR`（`/home/claude/workspace
 
 ---
 
-## 十三、备份建议
+## 十四、备份建议
 
 至少备份：
 
@@ -630,7 +749,7 @@ tar -czvf /mnt/c/Users/litaozhe/Desktop/ai-lab-backup.tar.gz \
 
 ---
 
-## 十四、关键文件路径汇总
+## 十五、关键文件路径汇总
 
 | 文件 | 路径 |
 |------|------|
