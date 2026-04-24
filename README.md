@@ -30,7 +30,7 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 ## 仓库里的关键文件
 
 - `skills/claude-code/scripts/run.sh`
-  当前主入口骨架。后续的同步、异步、状态查询、结果读取、取消任务，都会优先在这里演进。
+  当前主入口。已经支持 `sync`、`async`、`status`、`result`、`cancel`、`list` 这套任务流。
 
 - `skills/claude-code/SKILL.md`
   说明这个技能包的定位、运行方式和后续演进方向。
@@ -53,7 +53,7 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 ## 当前约定
 
 - Claude Code 运行用户：`claude`
-- Claude Code 工作目录：`/home/claude/workspaces/demo`
+- Claude Code 默认工作目录：优先使用 `CLAUDE_WORK_DIR`，否则自动回退到可用目录
 - Claude 配置目录：`/home/claude/.claude`
 - Proxy 运行目录：`/root/ai-lab/proxy`
 - Proxy 监听地址：`http://localhost:3040`

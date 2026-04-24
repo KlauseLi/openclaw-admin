@@ -79,6 +79,29 @@ proxy/
 > 从本节开始，后面仍保留了一批旧的 `bridge` 配置、日志和验证内容，主要用于历史对照与迁移参考。
 > 它们不再代表当前推荐生产方案。后续如果继续整理文档，应优先把这些章节逐步替换成 `skills/claude-code/scripts/run.sh` 的实际用法。
 
+当前推荐直接使用下面这组命令：
+
+```bash
+# 短任务
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh sync "任务描述" -w /工作目录
+
+# 长任务
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh async "任务描述" -w /工作目录
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh status <job_id>
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh result <job_id>
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh cancel <job_id>
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh list
+```
+
+当前实测已通过：
+
+- `sync`
+- `async`
+- `status`
+- `result`
+- `cancel`
+- `list`
+
 ---
 
 ## 三、前置条件
