@@ -44,6 +44,34 @@ ANTHROPIC_MODEL
 
 这些脚本适合用来为普通 shell 用户准备 Claude Code 的第三方模型环境变量。
 
+## 已验证适配
+
+### MiniMax CN Coding Plan
+
+当前两个 setup 脚本已验证可用于 MiniMax CN 的 Coding Plan。
+
+配置时使用：
+
+```text
+ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
+ANTHROPIC_AUTH_TOKEN=<MiniMax API Key>
+```
+
+MiniMax 文档中推荐的模型名是：
+
+```text
+MiniMax-M2.7
+```
+
+如果需要显式指定模型，可在 Claude Code 配置中补充：
+
+```text
+ANTHROPIC_MODEL=MiniMax-M2.7
+ANTHROPIC_DEFAULT_SONNET_MODEL=MiniMax-M2.7
+ANTHROPIC_DEFAULT_OPUS_MODEL=MiniMax-M2.7
+ANTHROPIC_DEFAULT_HAIKU_MODEL=MiniMax-M2.7
+```
+
 ## 与 OpenClaw 链路的边界
 
 OpenClaw 当前生产路径中的 `skills/claude-code/scripts/run.sh` 会使用：
