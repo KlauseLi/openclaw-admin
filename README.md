@@ -68,7 +68,7 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
   废弃历史参考。`OpenClaw MCP -> bridge -> Claude Code` 方案已经放弃，不再作为主执行入口。
 
 - `openclaw.example.json`
-  只保留与当前 skill 主线相关的配置片段，不再放完整 OpenClaw 配置；不要重新启用旧 `claude-bridge` MCP。
+  只保留与当前 skill 主线相关的配置片段：workspace 位置和空 `mcp.servers`。它不是完整 OpenClaw 配置，也不是 `run.sh` 的运行依赖。
 
 - `openclaw_claude_code_skill_可执行操作指南.md`
   当前最完整、最贴近真实部署状态的操作文档。

@@ -126,7 +126,7 @@ bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh sync "任务描
 /root/.openclaw/workspace/memory/pending_jobs.md
 ```
 
-`openclaw.example.json` 只保留与当前 skill 主线相关的配置片段，其中 `mcp.servers` 保持为空。除非需要回放历史 bridge 方案，否则不要重新启用 `claude-bridge`。
+`openclaw.example.json` 只保留与当前 skill 主线相关的配置片段：workspace 位置和空 `mcp.servers`。它不是完整 OpenClaw 配置，也不是 `run.sh` 的运行依赖。除非需要回放历史 bridge 方案，否则不要重新启用 `claude-bridge`。
 
 ### 当前接续状态（2026-04-25）
 

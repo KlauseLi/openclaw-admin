@@ -1,14 +1,9 @@
 {
-  "_note": "Minimal redacted snippet for the current OpenClaw -> claude-code skill -> run.sh path. This is not a full OpenClaw config.",
+  "_note": "Minimal redacted snippet for the current OpenClaw -> claude-code skill path. This is not a full OpenClaw config.",
   "agents": {
     "defaults": {
       "workspace": "/root/.openclaw/workspace"
     }
-  },
-  "gateway": {
-    "mode": "local",
-    "port": 18789,
-    "bind": "loopback"
   },
   "mcp": {
     "servers": {}
