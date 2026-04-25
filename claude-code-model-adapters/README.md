@@ -16,7 +16,7 @@ OpenClaw -> claude-code skill -> run.sh -> env -i + su - claude -> Claude Code C
 
 - MiniMax CN: [Claude Code - MiniMax 开放平台文档中心](https://platform.minimaxi.com/docs/token-plan/claude-code)
 - 智谱 GLM Coding Plan: [Claude Code - 智谱AI开放文档](https://docs.bigmodel.cn/cn/coding-plan/tool/claude)
-- 火山方舟: [接入三方工具 - 火山方舟](https://www.volcengine.com/docs/82379/2160841?lang=zh#adcc555a)
+- 火山方舟: [Claude Code - 火山方舟 Coding Plan 个人版](https://www.volcengine.com/docs/82379/1928262?lang=zh)
 
 后续新增厂商时，先把官方文档链接补到这里，再决定是否需要新增单独的适配脚本或配置模板。
 
