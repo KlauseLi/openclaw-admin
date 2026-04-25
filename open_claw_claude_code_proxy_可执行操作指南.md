@@ -102,6 +102,30 @@ bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh list
 - `cancel`
 - `list`
 
+### 当前生产接入方式
+
+`claude-code` 作为 workspace skill 被 OpenClaw 自动发现，不需要再通过 `mcp.servers.claude-bridge` 注册生产入口。确认方式：
+
+```bash
+openclaw skills list | grep claude-code
+openclaw skills info claude-code
+```
+
+预期 `claude-code` 来源为 `openclaw-workspace` 且状态为 `ready`。实际执行入口仍然是：
+
+```bash
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh sync "任务描述" -w /工作目录
+```
+
+异步任务状态默认写入：
+
+```text
+/root/.openclaw/workspace/memory/claude-jobs/
+/root/.openclaw/workspace/memory/pending_jobs.md
+```
+
+`openclaw.example.json` 中的 `mcp.servers` 默认保持为空。除非需要回放历史 bridge 方案，否则不要重新启用 `claude-bridge`。
+
 ---
 
 ## 三、前置条件
@@ -126,11 +150,51 @@ id claude   # 确认 claude 用户存在
 
 ---
 
-## 四、Bridge 文件
+## 四、Skill 主线文件
+
+路径：`/root/.openclaw/workspace/skills/claude-code/`
+
+当前生产文件：
+
+```text
+/root/.openclaw/workspace/skills/claude-code/SKILL.md
+/root/.openclaw/workspace/skills/claude-code/scripts/run.sh
+```
+
+仓库对应文件：
+
+```text
+skills/claude-code/SKILL.md
+skills/claude-code/scripts/run.sh
+```
+
+关键点：
+
+- OpenClaw 通过 workspace skill 发现 `claude-code`
+- `run.sh` 通过 `su - claude` 运行 Claude Code CLI
+- 短任务用 `sync`
+- 长任务用 `async` 启动，再用 `status` / `result` / `cancel` / `list` 管理
+- job metadata 写入 `/root/.openclaw/workspace/memory/claude-jobs`
+- pending 摘要写入 `/root/.openclaw/workspace/memory/pending_jobs.md`
+
+`claude` 用户需要具备：
+
+```text
+/home/claude/.claude/settings.json
+/home/claude/.claude.json
+```
+
+其中 `settings.json` 里配置 `ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`、`ANTHROPIC_MODEL`；`.claude.json` 至少需要 `hasCompletedOnboarding:true`。
+
+---
+
+## 五、Bridge 文件（历史参考）
 
 路径：`/home/claude/ai-lab/bridge/claude-bridge.mjs`
 
-当前实际版本：
+下面内容只用于历史对照，不再是当前推荐生产入口。当前生产入口见上一节的 `skills/claude-code/scripts/run.sh`。
+
+历史版本：
 
 ```js
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -241,9 +305,17 @@ log("bridge: transport closed");
 
 ---
 
-## 五、OpenClaw MCP 配置
+## 六、OpenClaw MCP 配置（历史参考）
 
-把以下配置写入 `/root/.openclaw/openclaw.json` 的 `mcp.servers` 段落：
+生产主线不需要配置 `claude-bridge` MCP。当前推荐在 `/root/.openclaw/openclaw.json` 中保持：
+
+```json
+"mcp": {
+  "servers": {}
+}
+```
+
+如果需要回放旧 bridge 方案，才把以下配置写入 `/root/.openclaw/openclaw.json` 的 `mcp.servers` 段落：
 
 ```json
 "mcp": {
@@ -283,7 +355,7 @@ log("bridge: transport closed");
 
 ---
 
-## 六、Proxy 文件
+## 七、Proxy 文件
 
 路径：`/root/ai-lab/proxy/server.js`
 
@@ -466,7 +538,7 @@ app.listen(PORT, () => {
 
 ---
 
-## 七、PM2 配置
+## 八、PM2 配置
 
 路径：`/root/ai-lab/proxy/ecosystem.config.js`
 
@@ -494,22 +566,22 @@ module.exports = {
 
 ---
 
-## 八、首次安装步骤
+## 九、首次安装步骤
 
 ### 1. 创建目录
 
 ```bash
-mkdir -p /home/claude/ai-lab/bridge
+mkdir -p /root/.openclaw/workspace/skills/claude-code/scripts
+mkdir -p /root/.openclaw/workspace/memory/claude-jobs
 mkdir -p /home/claude/workspaces/demo
 mkdir -p /root/ai-lab/proxy/logs
 ```
 
-### 2. 安装 Bridge 依赖
+### 2. 同步 Skill 文件
 
 ```bash
-cd /home/claude/ai-lab/bridge
-npm init -y
-npm install @modelcontextprotocol/sdk zod
+cp -r skills/claude-code /root/.openclaw/workspace/skills/
+chmod +x /root/.openclaw/workspace/skills/claude-code/scripts/run.sh
 ```
 
 ### 3. 安装 Proxy 依赖
@@ -520,15 +592,16 @@ npm init -y
 npm install express http-proxy-middleware morgan
 ```
 
-### 4. 修复 session-env 权限（避免 sandbox 错误）
+### 4. 修复 Claude 配置权限（避免 session-env 权限错误）
 
 ```bash
 chown -R claude:claude /home/claude/.claude/
+chown claude:claude /home/claude/.claude.json
 ```
 
 ---
 
-## 九、启动步骤
+## 十、启动步骤
 
 ### 1. 启动 Proxy（由 PM2 管理）
 
@@ -552,25 +625,37 @@ curl http://localhost:3040/healthz
 
 ```bash
 openclaw
-# 重启以加载 MCP 配置更新
+# 重启以加载 skill / 配置更新
 pkill -f openclaw; sleep 2; openclaw &
 ```
 
-### 4. 检查 bridge 进程
+### 4. 检查 claude-code skill
 
 ```bash
-ps -ef | grep "claude-bridge" | grep -v grep
+openclaw skills list | grep claude-code
 ```
 
-预期能看到：
+预期能看到 `claude-code` 为 `ready`。
 
+### 5. 直接检查 run.sh
+
+短任务：
+
+```bash
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh sync "echo skill-ok" -w /home/claude/workspaces/demo
 ```
-/usr/bin/sudo -u claude env ... /usr/bin/node /home/claude/ai-lab/bridge/claude-bridge.mjs
+
+长任务：
+
+```bash
+job_id="$(bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh async "echo async-ok" -w /home/claude/workspaces/demo)"
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh status "$job_id"
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh result "$job_id"
 ```
 
 ---
 
-## 十、验证步骤
+## 十一、验证步骤
 
 ### A. 直接验证 Claude CLI 走 Proxy
 
@@ -584,10 +669,10 @@ claude --bare --print --output-format json -- "echo direct-proxy-ok"
 
 预期输出 JSON 包含 `"result":"direct-proxy-ok"`。
 
-### B. 验证 OpenClaw 通过 MCP 创建文件
+### B. 验证 OpenClaw 识别 claude-code skill
 
 ```bash
-openclaw agent --agent main --message "用run_claude工具执行: echo openclaw-ok && date" --json --local
+openclaw skills info claude-code
 ```
 
 ### C. 查看 Proxy 请求日志
@@ -599,31 +684,30 @@ pm2 logs proxy --lines 20 --nostream
 
 预期看到 `POST /v1/messages?beta=true ... 200`，且日志显示 `claude-sonnet-4-6 -> MiniMax-M2.7`。
 
-### D. 查看 Bridge 日志
+### D. 查看 run.sh 异步任务记录
 
 ```bash
-tail -n 20 /home/claude/ai-lab/bridge/bridge.log
+tail -n 20 /root/.openclaw/workspace/memory/pending_jobs.md
+ls -lt /root/.openclaw/workspace/memory/claude-jobs | head
 ```
 
 ---
 
-## 十一、常见问题
+## 十二、常见问题
 
-### 1. bridge 返回 "Not logged in · Please run /login"
+### 1. Claude Code 返回 "Not logged in · Please run /login"
 
-原因：`sudo` 过滤了 `env:` dict 里的 `ANTHROPIC_API_KEY`，导致 Claude CLI 拿不到 Key。
+原因：`claude` 用户的 Claude Code 配置不完整，常见是 `/home/claude/.claude/settings.json` 缺少 `ANTHROPIC_AUTH_TOKEN` 或 `/home/claude/.claude.json` 缺少 `hasCompletedOnboarding:true`。
 
-修复：确认 `openclaw.json` 的 MCP 配置已改为 `sudo -u claude env MINIMAX_API_KEY=...` 格式（见第五节），然后重启 OpenClaw。
+修复：确认这两个文件存在且属主为 `claude`，然后用 `su - claude` 直接验证 Claude CLI。
 
-### 2. "permission denied, open '/home/claude/ai-lab/bridge/bridge.log'"
+### 2. 异步任务状态文件写入失败
 
-原因：目录不存在或属主不对。
+原因：`/root/.openclaw/workspace/memory/` 或 `claude-jobs/` 不存在。
 
 修复：
 ```bash
-mkdir -p /home/claude/ai-lab/bridge
-touch /home/claude/ai-lab/bridge/bridge.log
-chown claude:claude /home/claude/ai-lab/bridge/bridge.log
+mkdir -p /root/.openclaw/workspace/memory/claude-jobs
 ```
 
 ### 3. session-env 权限错误
@@ -646,22 +730,22 @@ Claude Code 安全沙箱只允许在 `CLAUDE_WORK_DIR`（`/home/claude/workspace
 
 ---
 
-## 十二、已知局限
+## 十三、已知局限
 
-### 1. `run_claude` 适合短任务，不适合长时间执行任务
+### 1. `run.sh sync` 适合短任务，不适合长时间执行任务
 
-当前链路里存在两层超时：
+当前链路仍然要注意调用方超时：
 
-- OpenClaw 调用 MCP 工具时，工具层本身有一层较短超时
-- `claude-bridge.mjs` 内部还有一层 `CLAUDE_TIMEOUT`，当前示例是 `300000` 毫秒
+- OpenClaw / channel / agent 调用侧可能有自己的等待时间
+- 同步 `run.sh sync` 会一直等待 Claude CLI 返回，仍应只用于较短任务
 
 已确认的真实行为是：
 
 - 如果 Claude Code 实际任务执行时间较长，OpenClaw 这一层可能会先超时返回
 - 这时底层 `claude` 进程不一定会立刻停止，可能还会继续跑
-- 但 OpenClaw 侧已经拿不到最终结果，所以用户看到的是 MCP tool 超时
+- 但 OpenClaw 侧已经拿不到最终结果，所以用户看到的是调用超时
 
-这不是网络问题，也不是 Proxy 超时主导，而是 OpenClaw 当前 MCP 工具层的调用时限比 bridge 内部超时更短。
+这不是网络问题，也不是 Proxy 超时主导，而是同步调用天然不适合长时间任务。
 
 ### 2. 当前适合的任务类型
 
@@ -679,69 +763,73 @@ Claude Code 安全沙箱只允许在 `CLAUDE_WORK_DIR`（`/home/claude/workspace
 
 ### 3. 现阶段的应对方式
 
-- 把任务拆小，优先让每次 `run_claude` 调用在较短时间内完成
+- 把任务拆小，优先让每次 `sync` 调用在较短时间内完成
 - 把“分析”和“执行”拆成多次调用，不要一次塞进太长流程
-- 如果任务天然是长任务，目前需要 OpenClaw 层面支持更长的 MCP tool 超时，或者改走别的执行通道
+- 如果任务天然是长任务，直接使用 `async` + `status` + `result`
 
 一句话总结：
 
-**这套方案当前更适合短任务调度，不适合把长时间执行完全挂在一次 MCP tool 调用里。**
+**这套方案当前把短任务放在 `sync`，把长任务放在 `async`，不要把长时间执行完全挂在一次同步调用里。**
 
 ### 4. 已实现的异步替代方案
 
-为了解决“OpenClaw MCP tool 先超时，但底层 Claude 任务还在继续跑”的问题，当前 `bridge/claude-bridge.mjs` 已经补上了一套异步任务工具：
+为了解决长任务阻塞问题，当前 `skills/claude-code/scripts/run.sh` 已经补上了一套异步任务命令：
 
-- `run_claude`
-  继续保留，用于几十秒内能完成的短任务。
+- `sync`
+  用于几十秒内能完成的短任务。
 
-- `run_claude_async`
+- `async`
   启动后台 Claude 任务，立即返回 `job_id`。
 
-- `get_claude_job`
+- `status`
   查询任务状态，典型状态包括 `running`、`succeeded`、`failed`、`cancelled`、`timed_out`。
 
-- `read_claude_job_result`
+- `result`
   读取任务最终结果、stdout、stderr 和解析后的 `parsed_result`。
 
-- `cancel_claude_job`
+- `cancel`
   取消正在运行的后台任务。
 
-- `list_claude_jobs`
+- `list`
   查看最近的任务列表和历史状态。
 
 推荐调用方式：
 
-1. 短任务继续直接调用 `run_claude`
-2. 长任务先调 `run_claude_async`
-3. 拿到 `job_id` 后，轮询 `get_claude_job`
-4. 状态结束后，再调 `read_claude_job_result`
-5. 如需中止，调用 `cancel_claude_job`
+1. 短任务继续直接调用 `sync`
+2. 长任务先调 `async`
+3. 拿到 `job_id` 后，轮询 `status`
+4. 状态结束后，再调 `result`
+5. 如需中止，调用 `cancel`
 
-这套方式的关键点不是“拉长单次 MCP tool 超时”，而是把长任务从“单次同步调用”改成“启动 + 轮询 + 取结果”的异步模型。
+这套方式的关键点不是“拉长单次同步调用超时”，而是把长任务从“单次同步调用”改成“启动 + 轮询 + 取结果”的异步模型。
 
 ### 5. 当前验证结果
 
-已在 WSL 环境中用 SDK 直连方式验证通过以下场景：
+已在 WSL 环境中验证通过以下场景：
 
-- `run_claude` 短任务成功返回
-- `run_claude_async` 可启动后台任务并轮询到 `succeeded`
-- `read_claude_job_result` 可读到最终 `parsed_result`
-- `cancel_claude_job` 可将运行中任务变成 `cancelled`
+- `sync` 短任务成功返回
+- `async` 可启动后台任务并轮询到 `succeeded`
+- `result` 可读到最终 `parsed_result`
+- `cancel` 可将运行中任务变成 `cancelled`
+- `list` 可列出历史任务
 
-仓库里保留了一个可复用的验证脚本：
+推荐复用这组命令验证：
 
 ```bash
-cd /home/claude/ai-lab/bridge
-node test-async-bridge.mjs
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh sync "echo sync-ok" -w /home/claude/workspaces/demo
+job_id="$(bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh async "echo async-ok" -w /home/claude/workspaces/demo)"
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh status "$job_id"
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh result "$job_id"
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh list
 ```
 
 ---
 
-## 十三、清理日志
+## 十四、清理日志
 
 ```bash
-# bridge 日志
-> /home/claude/ai-lab/bridge/bridge.log
+# run.sh pending job 摘要
+> /root/.openclaw/workspace/memory/pending_jobs.md
 
 # proxy access 日志
 > /root/ai-lab/proxy/logs/access.log
@@ -749,14 +837,15 @@ node test-async-bridge.mjs
 
 ---
 
-## 十四、备份建议
+## 十五、备份建议
 
 至少备份：
 
 ```text
-/home/claude/ai-lab/bridge/         （bridge 代码 + 日志）
+/root/.openclaw/workspace/skills/claude-code/ （skill 入口）
+/root/.openclaw/workspace/memory/claude-jobs/ （异步任务状态）
 /root/ai-lab/proxy/                   （proxy 代码 + 配置）
-/root/.openclaw/openclaw.json         （MCP 配置）
+/root/.openclaw/openclaw.json         （OpenClaw 配置）
 /home/claude/workspaces/demo/         （项目文件）
 ```
 
@@ -764,7 +853,8 @@ node test-async-bridge.mjs
 
 ```bash
 tar -czvf /mnt/c/Users/litaozhe/Desktop/ai-lab-backup.tar.gz \
-  /home/claude/ai-lab/bridge/ \
+  /root/.openclaw/workspace/skills/claude-code/ \
+  /root/.openclaw/workspace/memory/claude-jobs/ \
   /root/ai-lab/proxy/ \
   /root/.openclaw/openclaw.json \
   /home/claude/workspaces/demo/
@@ -772,14 +862,16 @@ tar -czvf /mnt/c/Users/litaozhe/Desktop/ai-lab-backup.tar.gz \
 
 ---
 
-## 十五、关键文件路径汇总
+## 十六、关键文件路径汇总
 
 | 文件 | 路径 |
 |------|------|
-| Bridge 代码 | `/home/claude/ai-lab/bridge/claude-bridge.mjs` |
-| Bridge 日志 | `/home/claude/ai-lab/bridge/bridge.log` |
+| Skill 说明 | `/root/.openclaw/workspace/skills/claude-code/SKILL.md` |
+| Skill 入口 | `/root/.openclaw/workspace/skills/claude-code/scripts/run.sh` |
+| Async job 状态目录 | `/root/.openclaw/workspace/memory/claude-jobs/` |
+| Pending job 摘要 | `/root/.openclaw/workspace/memory/pending_jobs.md` |
 | Proxy 代码 | `/root/ai-lab/proxy/server.js` |
 | Proxy PM2 配置 | `/root/ai-lab/proxy/ecosystem.config.js` |
 | Proxy 日志目录 | `/root/ai-lab/proxy/logs/` |
-| OpenClaw MCP 配置 | `/root/.openclaw/openclaw.json` |
+| OpenClaw 配置 | `/root/.openclaw/openclaw.json` |
 | Claude Code 工作目录 | `/home/claude/workspaces/demo` |

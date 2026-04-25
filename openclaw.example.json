@@ -128,31 +128,6 @@
     "openclaw-weixin": {}
   },
   "mcp": {
-    "servers": {
-      "claude-bridge": {
-        "command": "/usr/bin/sudo",
-        "args": [
-          "-u",
-          "claude",
-          "env",
-          "MINIMAX_API_KEY=${MINIMAX_API_KEY}",
-          "MINIMAX_API_HOST=${MINIMAX_API_HOST}",
-          "HOME=/home/claude",
-          "ANTHROPIC_BASE_URL=http://localhost:3040",
-          "/usr/bin/node",
-          "/home/claude/ai-lab/bridge/claude-bridge.mjs"
-        ],
-        "type": "stdio",
-        "env": {
-          "HOME": "/home/claude",
-          "USER": "claude",
-          "LOGNAME": "claude",
-          "CLAUDE_WORK_DIR": "/home/claude/workspaces/demo",
-          "CLAUDE_TIMEOUT": "300000",
-          "MINIMAX_API_KEY": "${MINIMAX_API_KEY}",
-          "MINIMAX_API_HOST": "${MINIMAX_API_HOST}"
-        }
-      }
-    }
+    "servers": {}
   }
 }
