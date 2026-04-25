@@ -152,6 +152,7 @@ live workspace 状态：
 - 新 session 中显式提到 `claude-code skill` 后，OpenClaw agent 会注入 `claude-code`
 - agent 已能通过 `exec` 实际调用 `run.sh sync` 并创建 `claude:claude` 属主文件
 - agent 已能通过 `exec` 实际调用 `run.sh async` 并返回 `job_id`
+- OpenClaw 直接对话已验证 job `20260425114306_151102_2572`：job 文件写入 `/root/.openclaw/workspace/memory/claude-jobs/`，`status=succeeded`，产物 `/home/claude/workspaces/openclaw-agent-smoke/openclaw-direct-chat-ok.txt` 属主为 `claude:claude`
 - `run.sh async` worker 已用 `setsid nohup` 加固
 - `status` / `result` / `list` / `cancel` 会自动识别 dead PID，把陈旧 `running` job 收尾为 `failed`
 
@@ -933,6 +934,7 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --prin
 - `watch` 已用 job `20260425111241_150054_e2a2` 验证成功
 - `result --raw` 已验证会输出纯结果文本
 - `cleanup --days 0 --dry-run` 已验证只预览匹配任务，不删除文件
+- OpenClaw 直接对话 job `20260425114306_151102_2572` 已验证成功；复核点包括 `run.sh status/result --raw`、job 目录文件、产物属主 `claude:claude` 与文件内容 `openclaw-direct-chat-ok`
 
 推荐复用这组命令验证：
 

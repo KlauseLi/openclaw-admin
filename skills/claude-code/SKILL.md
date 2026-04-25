@@ -70,4 +70,5 @@ Notes:
 - The repository copy is used for iteration, review, and versioning before syncing into the live OpenClaw workspace.
 - Exit code `2` means usage error; non-zero Claude Code failures are surfaced through stderr and job metadata.
 - `async` starts its worker with `setsid nohup`; status readers reconcile dead worker PIDs so stale `running` jobs become terminal `failed` jobs instead of hanging forever.
+- To verify a direct OpenClaw chat actually reached Claude Code, check the job under `/root/.openclaw/workspace/memory/claude-jobs`, then confirm `run.sh status/result --raw` and that the produced file is owned by `claude:claude`.
 - Known host issue: if WSL drvfs/interop breaks, `claude --print` can fail before doing useful work because Bun tries to spawn `/mnt/c/Windows/System32/reg.exe` and WSL returns `Input/output error`. Remount `/mnt/c` before treating this as a skill logic failure.
