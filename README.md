@@ -2,6 +2,7 @@
 
 这个仓库保存的是一套 OpenClaw 本地执行链路模板，当前主线已经切到 `skill script + claude 用户直调`。旧的 `proxy`、`MCP -> bridge -> Claude Code`、PM2 守护方案已经废弃，不再作为生产入口或维护方向。
 
+- OpenClaw 是完整产品名，不拆写；官网：[openclaw.ai](https://openclaw.ai)
 - OpenClaw 通过 skill script / exec 调用 Claude Code
 - Claude Code 在本地真实创建和修改文件
 - OpenClaw 配置已恢复为更简洁的 skill/plugin 调用方式
@@ -10,11 +11,7 @@
 当前方案已经统一到这条链路：
 
 ```text
-Claude Code 执行请求
 OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
-
-VLM/图片请求
-OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 ```
 
 ## 当前接续点
@@ -28,7 +25,7 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
   `/root/.openclaw/workspace/skill-backups/claude-code.bak-2026-04-24`
 - `openclaw skills info claude-code` 当前应指向：
   `~/.openclaw/workspace/skills/claude-code/SKILL.md`
-- 新 session 中显式提到 `claude-code skill` 后，OpenClaw agent 能注入该 skill，并能通过 `exec` 调用 `run.sh sync/async`。
+- 新 session 中显式提到 `claude-code skill` 后，OpenClaw 能注入该 skill，并能通过 `exec` 调用 `run.sh sync/async`。
 - OpenClaw 直接对话已实测走通 `run.sh async -> su - claude -> claude --print`：job `20260425114306_151102_2572` 成功创建 `claude:claude` 属主文件。
 - smoke workspace 已升级为真实开发任务验收点：`/home/claude/workspaces/openclaw-agent-smoke`，job `20260425115333_151881_5a87` 成功创建可执行 `scripts/healthcheck.sh`。
 - 中等复杂度压力测试已通过：job `20260425121010_153516_00c5` 创建 `app/config.json`、`src/report.md`、`scripts/medium_check.sh` 并修改 `README.md`，`medium_check.sh` 以 `claude` 用户执行输出 `medium-smoke-ok`。
@@ -44,7 +41,7 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 如果你第一次接手这个项目，推荐按这个顺序看：
 
 1. [NEXT.md](./NEXT.md)
-2. [open_claw_claude_code_skill_可执行操作指南.md](./open_claw_claude_code_skill_%E5%8F%AF%E6%89%A7%E8%A1%8C%E6%93%8D%E4%BD%9C%E6%8C%87%E5%8D%97.md)
+2. [openclaw_claude_code_skill_可执行操作指南.md](./openclaw_claude_code_skill_%E5%8F%AF%E6%89%A7%E8%A1%8C%E6%93%8D%E4%BD%9C%E6%8C%87%E5%8D%97.md)
 3. [openclaw.example.json](./openclaw.example.json)
 4. [skills/claude-code/SKILL.md](./skills/claude-code/SKILL.md)
 5. [skills/claude-code/scripts/run.sh](./skills/claude-code/scripts/run.sh)
@@ -71,9 +68,9 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
   废弃历史参考。`OpenClaw MCP -> bridge -> Claude Code` 方案已经放弃，不再作为主执行入口。
 
 - `openclaw.example.json`
-  脱敏后的 OpenClaw 配置模板，用于对照当前更简洁的 gateway、插件和 channel 结构；不要重新启用旧 `claude-bridge` MCP。
+  只保留与当前 skill 主线相关的配置片段，不再放完整 OpenClaw 配置；不要重新启用旧 `claude-bridge` MCP。
 
-- `open_claw_claude_code_skill_可执行操作指南.md`
+- `openclaw_claude_code_skill_可执行操作指南.md`
   当前最完整、最贴近真实部署状态的操作文档。
 
 ## 当前约定
@@ -89,10 +86,11 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 
 ## 安全说明
 
-- 真实的 `openclaw.json` 不提交到仓库
-- 真实 token、API key、飞书密钥都只保留在本地环境
-- 仓库里只保留脱敏模板和操作说明
+- 真实的 `/root/.openclaw/openclaw.json` 不提交到仓库
+- 真实 token、API key、channel 密钥和用户 allowlist 都只保留在本地环境
+- `openclaw.example.json` 只保留当前链路相关的脱敏片段，不再复制完整配置
+- `proxy/`、`bridge/`、PM2 内容只作为历史参考，不作为安全边界或当前运维目标
 
 ## 备注
 
-如果后续你发现“指南”和“真实代码”有偏差，以仓库里的实际代码和 `openclaw.example.json` 为准，然后再把指南补齐。
+如果后续你发现“指南”和真实运行状态有偏差，以 live workspace 的 `claude-code` skill、`run.sh`、`scripts/check-claude-skill-state.sh` 复核结果为准，然后再把指南补齐。

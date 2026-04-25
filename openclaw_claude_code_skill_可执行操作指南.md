@@ -2,6 +2,7 @@
 
 这份指南基于当前已跑通的真实版本整理。当前主方向已经从旧的 `proxy`、`MCP -> bridge -> Claude Code`、PM2 守护方案切到 `skill script / exec 直调 Claude Code`。
 
+- OpenClaw 是完整产品名，不拆写；官网：[openclaw.ai](https://openclaw.ai)
 - OpenClaw 通过 skill script / exec 调用 Claude Code
 - Claude Code 在本地真实创建 / 修改文件
 - `proxy/`、`bridge/`、PM2 配置只保留为历史参考，不再作为生产方案维护
@@ -12,13 +13,7 @@
 ## 一、当前实际架构
 
 ```
-VLM/图片请求: OpenClaw -> MiniMax 直连 (MINIMAX_API_HOST)
-                不经过 localhost:3040 proxy
-
-Claude Code 执行请求: OpenClaw
-                     -> skill script / exec
-                     -> su - claude
-                     -> Claude Code CLI
+OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 ```
 
 说明：
@@ -26,9 +21,15 @@ Claude Code 执行请求: OpenClaw
 - OpenClaw 负责调度
 - `skills/claude-code/scripts/run.sh` 是当前推荐入口，通过 `su - claude` 执行 Claude Code
 - Claude Code 负责真实执行文件操作（沙箱限制：只能写工作目录下的文件）
-- **VLM/图片请求走 MiniMax 直连**，由 `MINIMAX_API_HOST` 环境变量控制，不经过旧 proxy
 - 旧 `MCP -> bridge -> Claude Code` 方案已放弃：配置复杂，引入新技能插件后还需要调整 proxy 代码，维护成本高
 - 当前已验证的方式更简洁：OpenClaw 直接通过 workspace skill 和 `run.sh` 调用 Claude Code
+
+安全与备注：
+
+- 真实 `/root/.openclaw/openclaw.json`、token、API key、channel 密钥、用户 allowlist 不进入仓库。
+- `openclaw.example.json` 只保留当前链路相关的脱敏片段，不是完整 OpenClaw 配置。
+- 判断真实状态时，以 live workspace 的 `claude-code` skill、`run.sh` 和 `scripts/check-claude-skill-state.sh` 的复核结果为准。
+- `proxy/`、`bridge/`、PM2 内容只作为历史参考，不作为当前安全边界或运维目标。
 
 ---
 
@@ -125,7 +126,7 @@ bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh sync "任务描
 /root/.openclaw/workspace/memory/pending_jobs.md
 ```
 
-`openclaw.example.json` 中的 `mcp.servers` 默认保持为空。除非需要回放历史 bridge 方案，否则不要重新启用 `claude-bridge`。
+`openclaw.example.json` 只保留与当前 skill 主线相关的配置片段，其中 `mcp.servers` 保持为空。除非需要回放历史 bridge 方案，否则不要重新启用 `claude-bridge`。
 
 ### 当前接续状态（2026-04-25）
 
@@ -146,9 +147,9 @@ live workspace 状态：
 端到端验证状态：
 
 - 当前阶段已收尾：核心目标不是继续无限加码压力测试，而是确认生产主线可复现、可验收、可接续。
-- 新 session 中显式提到 `claude-code skill` 后，OpenClaw agent 会注入 `claude-code`
-- agent 已能通过 `exec` 实际调用 `run.sh sync` 并创建 `claude:claude` 属主文件
-- agent 已能通过 `exec` 实际调用 `run.sh async` 并返回 `job_id`
+- 新 session 中显式提到 `claude-code skill` 后，OpenClaw 会注入 `claude-code`
+- OpenClaw 已能通过 `exec` 实际调用 `run.sh sync` 并创建 `claude:claude` 属主文件
+- OpenClaw 已能通过 `exec` 实际调用 `run.sh async` 并返回 `job_id`
 - OpenClaw 直接对话已验证 job `20260425114306_151102_2572`：job 文件写入 `/root/.openclaw/workspace/memory/claude-jobs/`，`status=succeeded`，产物 `/home/claude/workspaces/openclaw-agent-smoke/openclaw-direct-chat-ok.txt` 属主为 `claude:claude`
 - OpenClaw 真实开发任务已验证 job `20260425115333_151881_5a87`：成功创建 `/home/claude/workspaces/openclaw-agent-smoke/scripts/healthcheck.sh`，文件属主 `claude:claude`，权限 `775`，以 `claude` 用户执行通过
 - OpenClaw 中等复杂度压力测试已验证 job `20260425121010_153516_00c5`：创建 `app/config.json`、`src/report.md`、`scripts/medium_check.sh`，修改 `README.md`，并以 `claude` 用户执行 `medium_check.sh` 输出 `medium-smoke-ok`
@@ -188,7 +189,7 @@ mount -t drvfs C: /mnt/c -o metadata,umask=22,fmask=11
 - `su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --print ...'` 成功
 - `run.sh sync` 成功创建 `runsh-sync-fixed.txt`
 - `run.sh async` job `20260425104826_148510_8edf` 成功，`status=succeeded`
-- OpenClaw agent async job `20260425105246_149070_f04b` 成功，`status=succeeded`
+- OpenClaw async job `20260425105246_149070_f04b` 成功，`status=succeeded`
 
 下次如果复发，先 remount `/mnt/c`；如果 remount 不生效，再从 Windows 侧执行 `wsl --shutdown` 后重启 Ubuntu。
 
@@ -203,14 +204,12 @@ mount -t drvfs C: /mnt/c -o metadata,umask=22,fmask=11
 - Claude Code CLI
 - `claude` 系统用户
 - OpenClaw 已可启动
-- PM2 已安装（仅旧 proxy 历史方案需要；当前 skill 主线不需要）
 
 验证命令：
 
 ```bash
 which claude && claude --version
 node -v && npm -v
-pm2 -v
 id claude   # 确认 claude 用户存在
 ```
 
@@ -416,7 +415,7 @@ log("bridge: transport closed");
 
 - 用 `sudo -u claude env KEY=value` 方式注入环境变量（sudo 会过滤 `env:` dict 里的 `ANTHROPIC_API_KEY`，所以通过 sudo 的 args 传）
 - `MINIMAX_API_KEY` 来自运行 OpenClaw 的 shell 环境变量
-- `MINIMAX_API_HOST` 供 VLM/图片请求直连 MiniMax 使用
+- `MINIMAX_API_HOST` 是旧 bridge/proxy 尝试期保留的历史配置，不属于当前 Claude Code skill 主线
 - OpenClaw 重启后生效：`pkill -f openclaw; openclaw &`
 
 ---
@@ -788,7 +787,7 @@ mkdir -p /root/.openclaw/workspace/memory/claude-jobs
 chown -R claude:claude /home/claude/.claude/
 ```
 
-### 4. `pm2 list` 中 `proxy` 为 `errored`
+### 4. 历史参考：`pm2 list` 中 `proxy` 为 `errored`
 
 ```bash
 pm2 logs proxy --lines 50
@@ -893,7 +892,7 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --prin
   读取任务最终结果、stdout、stderr 和解析后的 `parsed_result`。
 
 - `result --raw`
-  只输出解析后的结果文本，便于 OpenClaw agent、shell 脚本或上层自动化消费。
+  只输出解析后的结果文本，便于 OpenClaw、shell 脚本或上层自动化消费。
 
 - `watch`
   轮询等待任务进入 `succeeded`、`failed`、`cancelled` 或 `timed_out`，结束后输出完整 result JSON。
@@ -938,11 +937,11 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --prin
 - `result` 可读到最终 `parsed_result`
 - `cancel` 可将运行中任务变成 `cancelled`
 - `list` 可列出历史任务
-- OpenClaw agent 新 session 可注入 `claude-code` skill
-- OpenClaw agent 可通过 `exec` 调用 `run.sh async` 并拿到 `job_id`
+- OpenClaw 新 session 可注入 `claude-code` skill
+- OpenClaw 可通过 `exec` 调用 `run.sh async` 并拿到 `job_id`
 - 陈旧 `running` job 可自动收尾为 `failed / worker_missing`
 - remount `/mnt/c` 后，Claude Code CLI `claude --print` 已恢复
-- remount `/mnt/c` 后，OpenClaw agent async job `20260425105246_149070_f04b` 已验证成功
+- remount `/mnt/c` 后，OpenClaw async job `20260425105246_149070_f04b` 已验证成功
 - `watch` 已用 job `20260425111241_150054_e2a2` 验证成功
 - `result --raw` 已验证会输出纯结果文本
 - `cleanup --days 0 --dry-run` 已验证只预览匹配任务，不删除文件
@@ -1010,9 +1009,6 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && ./scripts/val
 ```bash
 # run.sh pending job 摘要
 > /root/.openclaw/workspace/memory/pending_jobs.md
-
-# proxy access 日志
-> /root/ai-lab/proxy/logs/access.log
 ```
 
 ---
@@ -1024,7 +1020,6 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && ./scripts/val
 ```text
 /root/.openclaw/workspace/skills/claude-code/ （skill 入口）
 /root/.openclaw/workspace/memory/claude-jobs/ （异步任务状态）
-/root/ai-lab/proxy/                   （proxy 代码 + 配置）
 /root/.openclaw/openclaw.json         （OpenClaw 配置）
 /home/claude/workspaces/demo/         （项目文件）
 ```
@@ -1035,7 +1030,6 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && ./scripts/val
 tar -czvf /mnt/c/Users/litaozhe/Desktop/ai-lab-backup.tar.gz \
   /root/.openclaw/workspace/skills/claude-code/ \
   /root/.openclaw/workspace/memory/claude-jobs/ \
-  /root/ai-lab/proxy/ \
   /root/.openclaw/openclaw.json \
   /home/claude/workspaces/demo/
 ```
@@ -1050,8 +1044,5 @@ tar -czvf /mnt/c/Users/litaozhe/Desktop/ai-lab-backup.tar.gz \
 | Skill 入口 | `/root/.openclaw/workspace/skills/claude-code/scripts/run.sh` |
 | Async job 状态目录 | `/root/.openclaw/workspace/memory/claude-jobs/` |
 | Pending job 摘要 | `/root/.openclaw/workspace/memory/pending_jobs.md` |
-| Proxy 代码 | `/root/ai-lab/proxy/server.js` |
-| Proxy PM2 配置 | `/root/ai-lab/proxy/ecosystem.config.js` |
-| Proxy 日志目录 | `/root/ai-lab/proxy/logs/` |
 | OpenClaw 配置 | `/root/.openclaw/openclaw.json` |
 | Claude Code 工作目录 | `/home/claude/workspaces/demo` |
