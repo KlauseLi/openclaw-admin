@@ -149,6 +149,7 @@ live workspace 状态：
 
 端到端验证状态：
 
+- 当前阶段已收尾：核心目标不是继续无限加码压力测试，而是确认生产主线可复现、可验收、可接续。
 - 新 session 中显式提到 `claude-code skill` 后，OpenClaw agent 会注入 `claude-code`
 - agent 已能通过 `exec` 实际调用 `run.sh sync` 并创建 `claude:claude` 属主文件
 - agent 已能通过 `exec` 实际调用 `run.sh async` 并返回 `job_id`
@@ -159,6 +160,13 @@ live workspace 状态：
 - OpenClaw 真实仓库小功能修改已验证 job `20260425123748_159236_3ac5`：在 `/mnt/c/Users/litaozhe/openclaw-admin` 新增 `scripts/check-claude-skill-state.sh`，执行输出 `claude-skill-state-ok`
 - `run.sh async` worker 已用 `setsid nohup` 加固
 - `status` / `result` / `list` / `cancel` 会自动识别 dead PID，把陈旧 `running` job 收尾为 `failed`
+
+下一阶段如果继续推进，建议单独作为稳定性/压力测试阶段处理，可选方向：
+
+- 10-30 分钟长任务稳定性测试
+- 多个 `async` job 并发测试
+- `cancel`、Claude CLI 失败、WSL interop 故障等异常恢复测试
+- 真实项目代码修改和测试修复流程
 
 已解除的阻塞：
 

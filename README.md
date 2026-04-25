@@ -21,6 +21,7 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 
 截至 2026-04-25，主线状态如下：
 
+- 当前阶段已收尾：OpenClaw -> `claude-code` skill -> `run.sh async` -> Claude Code CLI 的本地执行链路已打通，并通过 smoke、中等复杂度、真实仓库小功能三层验证。
 - GitHub `main` 已包含文档主线切换和 `run.sh` async 管理层加固。
 - live workspace 的 `claude-code` skill 已同步到 `/root/.openclaw/workspace/skills/claude-code/`。
 - 旧备份目录已移出 active skills 扫描范围：
