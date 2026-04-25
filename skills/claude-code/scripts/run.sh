@@ -112,6 +112,46 @@ EOF
   mv "$tmp_file" "$meta_file"
 }
 
+reconcile_job_state() {
+  local exit_file exit_code
+
+  case "${STATUS:-}" in
+    queued|running|cancelling)
+      ;;
+    *)
+      return
+      ;;
+  esac
+
+  if [[ -z "${PID:-}" ]] || kill -0 "$PID" 2>/dev/null; then
+    return
+  fi
+
+  exit_file="$(job_exit_path "$JOB_ID")"
+  FINISHED_AT="${FINISHED_AT:-$(timestamp_utc)}"
+
+  if [[ -f "$exit_file" ]]; then
+    exit_code="$(tr -d '\r\n' < "$exit_file")"
+    EXIT_CODE="$exit_code"
+    SIGNAL=""
+  else
+    EXIT_CODE="${EXIT_CODE:-255}"
+    SIGNAL="${SIGNAL:-worker_missing}"
+  fi
+
+  if [[ "$STATUS" == "cancelling" || "${EXIT_CODE:-}" == "143" || "${EXIT_CODE:-}" == "137" ]]; then
+    STATUS="cancelled"
+    CANCELLED_AT="${CANCELLED_AT:-$FINISHED_AT}"
+  elif [[ "${EXIT_CODE:-}" == "0" ]]; then
+    STATUS="succeeded"
+  else
+    STATUS="failed"
+  fi
+
+  write_meta
+  append_pending_log "job=$JOB_ID status=$STATUS exit=${EXIT_CODE:-} signal=${SIGNAL:-}"
+}
+
 preview_file() {
   local file_path="$1"
   local max_chars="${2:-$RESULT_PREVIEW_CHARS}"
@@ -244,6 +284,7 @@ emit_list_json() {
     PROMPT=""
     # shellcheck disable=SC1090
     source "$meta_file"
+    reconcile_job_state
 
     local stdout_path stderr_path stdout_preview stderr_preview
     stdout_path="$(job_stdout_path "$JOB_ID")"
@@ -360,7 +401,7 @@ cmd_async() {
   : > "$(job_stdout_path "$job_id")"
   : > "$(job_stderr_path "$job_id")"
 
-  nohup bash "$SCRIPT_PATH" __worker "$job_id" >/dev/null 2>&1 </dev/null &
+  setsid nohup bash "$SCRIPT_PATH" __worker "$job_id" >/dev/null 2>&1 </dev/null &
   worker_pid=$!
 
   load_meta "$job_id"
@@ -435,6 +476,7 @@ cmd_status() {
     echo "Job not found: $job_id" >&2
     exit 1
   }
+  reconcile_job_state
   emit_job_json "status"
 }
 
@@ -445,6 +487,7 @@ cmd_result() {
     echo "Job not found: $job_id" >&2
     exit 1
   }
+  reconcile_job_state
   emit_job_json "result"
 }
 
@@ -455,6 +498,7 @@ cmd_cancel() {
     echo "Job not found: $job_id" >&2
     exit 1
   }
+  reconcile_job_state
 
   if [[ "$STATUS" != "queued" && "$STATUS" != "running" && "$STATUS" != "cancelling" ]]; then
     emit_job_json "status"
