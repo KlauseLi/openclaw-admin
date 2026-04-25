@@ -45,6 +45,7 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 2. [openclaw_claude_code_skill_可执行操作指南.md](./openclaw_claude_code_skill_%E5%8F%AF%E6%89%A7%E8%A1%8C%E6%93%8D%E4%BD%9C%E6%8C%87%E5%8D%97.md)
 3. [skills/claude-code/SKILL.md](./skills/claude-code/SKILL.md)
 4. [skills/claude-code/scripts/run.sh](./skills/claude-code/scripts/run.sh)
+5. [claude-code-model-adapters/README.md](./claude-code-model-adapters/README.md)
 
 ## 仓库里的关键文件
 
@@ -58,11 +59,14 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 - `scripts/check-claude-skill-state.sh`
   只读检查 live workspace 里的 `claude-code` skill 状态，成功时输出 `claude-skill-state-ok`。
 
-- `scripts/claude-cli-setup.sh`
+- `claude-code-model-adapters/claude-cli-setup.sh`
   Linux / WSL shell 下的 Claude Code 第三方模型切换辅助脚本，用于交互式写入 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_AUTH_TOKEN`。
 
-- `scripts/claude-cli-setup.ps1`
+- `claude-code-model-adapters/claude-cli-setup.ps1`
   Windows PowerShell 下的 Claude Code 第三方模型切换辅助脚本，用于交互式写入用户级 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_AUTH_TOKEN`。
+
+- `claude-code-model-adapters/`
+  独立子项目，记录各类第三方 Claude-compatible 模型适配 Claude Code 的方法；不属于 OpenClaw 执行主链路。
 
 - `proxy/server.js`
   废弃历史参考。旧代理路线维护成本高，已被当前 `claude-code` skill + `run.sh` 方式替代。
@@ -82,7 +86,7 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 - Claude Code 默认工作目录：优先使用 `CLAUDE_WORK_DIR`，否则自动回退到可用目录
 - Claude 配置目录：`/home/claude/.claude`
 - Claude Code 认证来源：`/home/claude/.claude/settings.json`
-- 第三方 Claude-compatible 模型切换：参考 `scripts/claude-cli-setup.sh` 和 `scripts/claude-cli-setup.ps1` 获取 / 写入 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`；当前 OpenClaw 链路最终以 `/home/claude/.claude/settings.json` 中的值为准
+- 第三方 Claude-compatible 模型切换：参考 `claude-code-model-adapters/claude-cli-setup.sh` 和 `claude-code-model-adapters/claude-cli-setup.ps1` 获取 / 写入 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`；当前 OpenClaw 链路最终以 `/home/claude/.claude/settings.json` 中的值为准
 - `run.sh` 通过 `env -i + su - claude` 隔离执行环境，与 OpenClaw JSON 配置零耦合
 - OpenClaw gateway 默认端口：`18789`
 - 主入口优先使用 `skills/claude-code/scripts/run.sh`

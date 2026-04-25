@@ -27,11 +27,12 @@ The current phase is now `stability-pressure-testing`, tracked under `stability/
 
 - `README.md`
 - `openclaw_claude_code_skill_可执行操作指南.md`
+- `claude-code-model-adapters/README.md`
 - `skills/claude-code/SKILL.md`
 - `skills/claude-code/scripts/run.sh`
 - `scripts/check-claude-skill-state.sh`
-- `scripts/claude-cli-setup.sh`
-- `scripts/claude-cli-setup.ps1`
+- `claude-code-model-adapters/claude-cli-setup.sh`
+- `claude-code-model-adapters/claude-cli-setup.ps1`
 - `stability/README.md`
 - `stability/test-plan.md`
 - `stability/results/2026-04-25.md`
@@ -44,7 +45,7 @@ Claude Code switches to a third-party Claude-compatible backend through:
 - `ANTHROPIC_AUTH_TOKEN`
 - optional `ANTHROPIC_MODEL`
 
-The helper scripts in `scripts/claude-cli-setup.sh` and `scripts/claude-cli-setup.ps1` are useful for collecting and writing those values for a normal shell user. In the OpenClaw production path, `run.sh` uses `env -i + su - claude`, so the effective runtime source remains `/home/claude/.claude/settings.json` for the `claude` user.
+The helper scripts in `claude-code-model-adapters/claude-cli-setup.sh` and `claude-code-model-adapters/claude-cli-setup.ps1` are useful for collecting and writing those values for a normal shell user. This adapter folder is a subproject for third-party model setup, not the OpenClaw execution path. In the OpenClaw production path, `run.sh` uses `env -i + su - claude`, so the effective runtime source remains `/home/claude/.claude/settings.json` for the `claude` user.
 
 ## Baseline Recheck
 
