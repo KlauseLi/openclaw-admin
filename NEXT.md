@@ -34,6 +34,16 @@ The current phase is now `stability-pressure-testing`, tracked under `stability/
 - `stability/test-plan.md`
 - `stability/results/2026-04-25.md`
 
+## Model Backend Note
+
+Claude Code switches to a third-party Claude-compatible backend through:
+
+- `ANTHROPIC_BASE_URL`
+- `ANTHROPIC_AUTH_TOKEN`
+- optional `ANTHROPIC_MODEL`
+
+The helper scripts in `C:\Users\litaozhe\claude-admin\claude-cli-setup.sh` and `C:\Users\litaozhe\claude-admin\claude-cli-setup.ps1` are useful for collecting and writing those values for a normal shell user. In the OpenClaw production path, `run.sh` uses `env -i + su - claude`, so the effective runtime source remains `/home/claude/.claude/settings.json` for the `claude` user.
+
 ## Baseline Recheck
 
 Before continuing pressure tests, run:

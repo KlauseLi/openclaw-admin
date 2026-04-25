@@ -5,6 +5,7 @@
 - OpenClaw 是完整产品名，不拆写；官网：[openclaw.ai](https://openclaw.ai)
 - OpenClaw 通过 skill script / exec 调用 Claude Code
 - Claude Code 在本地真实创建 / 修改文件
+- Claude Code 切换第三方模型的关键配置是 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 和可选 `ANTHROPIC_MODEL`
 - `proxy/`、`bridge/`、PM2 配置只保留为历史参考，不再作为生产方案维护
 - `claude-code` 的认证和运行配置独立于 OpenClaw JSON 配置体系，不再通过 `mcp.servers.claude-bridge` 接入 Claude Code
 
@@ -22,6 +23,7 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 - `skills/claude-code/scripts/run.sh` 是当前推荐入口，通过 `su - claude` 执行 Claude Code
 - Claude Code 负责真实执行文件操作（沙箱限制：只能写工作目录下的文件）
 - Claude Code 认证来源是 `/home/claude/.claude/settings.json`
+- Claude Code 第三方模型切换来源是 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 和可选 `ANTHROPIC_MODEL`；`C:\Users\litaozhe\claude-admin\claude-cli-setup.sh`、`C:\Users\litaozhe\claude-admin\claude-cli-setup.ps1` 可作为获取 / 写入这些值的参考工具
 - `run.sh` 用 `env -i + su - claude` 隔离执行环境，与 OpenClaw JSON 配置零耦合
 - 旧 `MCP -> bridge -> Claude Code` 方案已放弃：配置复杂，引入新技能插件后还需要调整 proxy 代码，维护成本高
 - 当前已验证的方式更简洁：OpenClaw 直接通过 workspace skill 和 `run.sh` 调用 Claude Code
@@ -129,6 +131,27 @@ bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh sync "任务描
 ```
 
 当前 Claude Code 执行链路不需要仓库内的 OpenClaw JSON 示例。`claude-code` skill 由 OpenClaw workspace 发现，Claude Code 认证由 `/home/claude/.claude/settings.json` 提供，`run.sh` 通过 `env -i + su - claude` 隔离执行。除非需要回放历史 bridge 方案，否则不要重新启用 `claude-bridge`。
+
+### 第三方模型切换边界
+
+Claude Code 切换到第三方 Claude-compatible 模型时，核心不是改 OpenClaw JSON，也不是恢复 proxy / bridge，而是配置 Claude Code 自身使用的 Anthropic 兼容参数：
+
+```text
+ANTHROPIC_BASE_URL
+ANTHROPIC_AUTH_TOKEN
+ANTHROPIC_MODEL
+```
+
+`C:\Users\litaozhe\claude-admin\claude-cli-setup.sh` 和 `C:\Users\litaozhe\claude-admin\claude-cli-setup.ps1` 已经覆盖了普通 shell / PowerShell 用户的交互式配置方式：输入第三方 `base_url`，再写入 `ANTHROPIC_AUTH_TOKEN`。这两个脚本应该作为“Claude Code 后端模型切换工具”纳入链路认知。
+
+但当前 OpenClaw 生产执行路径里，`run.sh` 会通过 `env -i + su - claude` 清空继承环境并切到 `claude` 用户，所以 Windows 用户环境变量、root shell 环境变量或普通用户的 `.bashrc` 不会自动成为最终运行时配置。最终有效配置仍应落在：
+
+```text
+/home/claude/.claude/settings.json
+/home/claude/.claude.json
+```
+
+因此这两个脚本的正确位置是“模型后端配置 / 凭据准备”层，而不是替代 `skills/claude-code/scripts/run.sh` 的执行入口。
 
 ### 当前接续状态（2026-04-25）
 

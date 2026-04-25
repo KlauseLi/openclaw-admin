@@ -6,6 +6,7 @@
 - OpenClaw 通过 skill script / exec 调用 Claude Code
 - Claude Code 在本地真实创建和修改文件
 - `claude-code` 配置完全独立于 OpenClaw JSON 配置体系
+- Claude Code 切换第三方模型的关键配置是 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 和可选 `ANTHROPIC_MODEL`
 - `proxy/`、`bridge/`、PM2 配置只保留为历史参考
 
 当前方案已经统一到这条链路：
@@ -75,6 +76,7 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 - Claude Code 默认工作目录：优先使用 `CLAUDE_WORK_DIR`，否则自动回退到可用目录
 - Claude 配置目录：`/home/claude/.claude`
 - Claude Code 认证来源：`/home/claude/.claude/settings.json`
+- 第三方 Claude-compatible 模型切换：参考 `C:\Users\litaozhe\claude-admin\claude-cli-setup.sh` 和 `C:\Users\litaozhe\claude-admin\claude-cli-setup.ps1` 获取 / 写入 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`；当前 OpenClaw 链路最终以 `/home/claude/.claude/settings.json` 中的值为准
 - `run.sh` 通过 `env -i + su - claude` 隔离执行环境，与 OpenClaw JSON 配置零耦合
 - OpenClaw gateway 默认端口：`18789`
 - 主入口优先使用 `skills/claude-code/scripts/run.sh`
