@@ -17,6 +17,22 @@ VLM/图片请求
 OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 ```
 
+## 当前接续点
+
+截至 2026-04-25，主线状态如下：
+
+- GitHub `main` 已包含文档主线切换和 `run.sh` async 管理层加固。
+- live workspace 的 `claude-code` skill 已同步到 `/root/.openclaw/workspace/skills/claude-code/`。
+- 旧备份目录已移出 active skills 扫描范围：
+  `/root/.openclaw/workspace/skill-backups/claude-code.bak-2026-04-24`
+- `openclaw skills info claude-code` 当前应指向：
+  `~/.openclaw/workspace/skills/claude-code/SKILL.md`
+- 新 session 中显式提到 `claude-code skill` 后，OpenClaw agent 能注入该 skill，并能通过 `exec` 调用 `run.sh sync/async`。
+- `run.sh async` 已加固：worker 使用 `setsid nohup` 启动，`status/result/list/cancel` 会把 dead PID 的陈旧 `running` 自动收尾为 `failed`。
+- 当前阻塞不在 OpenClaw skill 或 async job 管理层，而在 Claude Code CLI：`claude --print` 会触发 Bun 调用 `/mnt/c/Windows/System32/reg.exe`，而当前 WSL 访问该文件返回 `Input/output error`。
+
+下次继续时优先处理 WSL/Claude CLI 的 `reg.exe EIO`，再重跑端到端 async 验证。
+
 ## 先看哪里
 
 如果你第一次接手这个项目，推荐按这个顺序看：
@@ -31,6 +47,7 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 
 - `skills/claude-code/scripts/run.sh`
   当前主入口。已经支持 `sync`、`async`、`status`、`result`、`cancel`、`list` 这套任务流。
+  `async` worker 已脱离调用进程组，陈旧 `running` 会在查询时自动收尾。
 
 - `skills/claude-code/SKILL.md`
   说明这个技能包的定位、运行方式和后续演进方向。
@@ -60,6 +77,7 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 - OpenClaw gateway 默认端口：`18789`
 - 主入口优先使用 `skills/claude-code/scripts/run.sh`
 - `bridge/` 不再作为生产路径继续扩展
+- OpenClaw 聊天里如需刷新旧 session 的 skill 注入状态，先发 `/new`，或用新的 `--session-id`
 
 ## 安全说明
 

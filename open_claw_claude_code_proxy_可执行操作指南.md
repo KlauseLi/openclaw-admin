@@ -126,6 +126,40 @@ bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh sync "任务描
 
 `openclaw.example.json` 中的 `mcp.servers` 默认保持为空。除非需要回放历史 bridge 方案，否则不要重新启用 `claude-bridge`。
 
+### 当前接续状态（2026-04-25）
+
+已经完成并推送到 GitHub `main`：
+
+- `d5255a3 docs: align claude skill runbook with run.sh mainline`
+- `84e0f52 fix: harden claude async job state handling`
+
+live workspace 状态：
+
+- 仓库版 `skills/claude-code/SKILL.md` 已同步到 `/root/.openclaw/workspace/skills/claude-code/SKILL.md`
+- 仓库版 `skills/claude-code/scripts/run.sh` 已同步到 `/root/.openclaw/workspace/skills/claude-code/scripts/run.sh`
+- 旧备份目录已移出 active skills 扫描范围：
+  `/root/.openclaw/workspace/skill-backups/claude-code.bak-2026-04-24`
+- `openclaw skills info claude-code` 当前应显示：
+  `Path: ~/.openclaw/workspace/skills/claude-code/SKILL.md`
+
+端到端验证状态：
+
+- 新 session 中显式提到 `claude-code skill` 后，OpenClaw agent 会注入 `claude-code`
+- agent 已能通过 `exec` 实际调用 `run.sh sync` 并创建 `claude:claude` 属主文件
+- agent 已能通过 `exec` 实际调用 `run.sh async` 并返回 `job_id`
+- `run.sh async` worker 已用 `setsid nohup` 加固
+- `status` / `result` / `list` / `cancel` 会自动识别 dead PID，把陈旧 `running` job 收尾为 `failed`
+
+当前阻塞：
+
+```text
+claude --print
+  -> Bun posix_spawn /mnt/c/Windows/System32/reg.exe
+  -> EIO: i/o error
+```
+
+直接测试 `/mnt/c/Windows/System32/reg.exe` 也会返回 `Input/output error`，所以当前阻塞在 WSL/Windows interop 或 Claude Code CLI 的平台探测，不在 OpenClaw skill 注入或 async job 管理层。下次优先修这个问题，然后重跑第十一节和第十三节的验证。
+
 ---
 
 ## 三、前置条件
@@ -728,6 +762,24 @@ export UPSTREAM_API_KEY="你的key" && pm2 restart proxy
 
 Claude Code 安全沙箱只允许在 `CLAUDE_WORK_DIR`（`/home/claude/workspaces/demo`）下写文件，`/tmp/` 等路径会被拒绝。这是正常行为，不是 bug。
 
+### 6. `claude --print` 报 `reg.exe` EIO
+
+现象：
+
+```text
+EIO: i/o error, posix_spawn '/mnt/c/Windows/System32/reg.exe'
+```
+
+已确认：
+
+```bash
+su - claude -c "claude --version"   # 正常
+su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --print "测试"'  # 触发 EIO
+/mnt/c/Windows/System32/reg.exe query "HKCU\\Console"  # WSL 侧直接 Input/output error
+```
+
+结论：这是当前 WSL 对 Windows 可执行文件 interop 的问题，Claude Code CLI 的 Bun 运行时在 `--print` 路径里触发了 Windows 平台探测。优先修复 WSL interop / Windows mount 后再继续验证 Claude Code 实际执行。
+
 ---
 
 ## 十三、已知局限
@@ -793,6 +845,16 @@ Claude Code 安全沙箱只允许在 `CLAUDE_WORK_DIR`（`/home/claude/workspace
 - `list`
   查看最近的任务列表和历史状态。
 
+异步管理层加固点：
+
+- `async` 用 `setsid nohup` 启动 worker，避免 OpenClaw `exec` 返回时连带清理后台进程。
+- `status` / `result` / `list` / `cancel` 会调用状态 reconciliation。
+- 如果 meta 里还是 `running`，但 PID 已不存在：
+  - 有 exit 文件则按 exit code 收尾
+  - 无 exit 文件则标记为 `failed`
+  - `exit_code=255`
+  - `signal=worker_missing`
+
 推荐调用方式：
 
 1. 短任务继续直接调用 `sync`
@@ -812,6 +874,13 @@ Claude Code 安全沙箱只允许在 `CLAUDE_WORK_DIR`（`/home/claude/workspace
 - `result` 可读到最终 `parsed_result`
 - `cancel` 可将运行中任务变成 `cancelled`
 - `list` 可列出历史任务
+- OpenClaw agent 新 session 可注入 `claude-code` skill
+- OpenClaw agent 可通过 `exec` 调用 `run.sh async` 并拿到 `job_id`
+- 陈旧 `running` job 可自动收尾为 `failed / worker_missing`
+
+当前未通过项：
+
+- Claude Code CLI 实际执行 `claude --print`，受 `/mnt/c/Windows/System32/reg.exe` EIO 阻塞
 
 推荐复用这组命令验证：
 
