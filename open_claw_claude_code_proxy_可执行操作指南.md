@@ -154,6 +154,7 @@ live workspace 状态：
 - agent 已能通过 `exec` 实际调用 `run.sh async` 并返回 `job_id`
 - OpenClaw 直接对话已验证 job `20260425114306_151102_2572`：job 文件写入 `/root/.openclaw/workspace/memory/claude-jobs/`，`status=succeeded`，产物 `/home/claude/workspaces/openclaw-agent-smoke/openclaw-direct-chat-ok.txt` 属主为 `claude:claude`
 - OpenClaw 真实开发任务已验证 job `20260425115333_151881_5a87`：成功创建 `/home/claude/workspaces/openclaw-agent-smoke/scripts/healthcheck.sh`，文件属主 `claude:claude`，权限 `775`，以 `claude` 用户执行通过
+- OpenClaw 中等复杂度压力测试已验证 job `20260425121010_153516_00c5`：创建 `app/config.json`、`src/report.md`、`scripts/medium_check.sh`，修改 `README.md`，并以 `claude` 用户执行 `medium_check.sh` 输出 `medium-smoke-ok`
 - `run.sh async` worker 已用 `setsid nohup` 加固
 - `status` / `result` / `list` / `cancel` 会自动识别 dead PID，把陈旧 `running` job 收尾为 `failed`
 
@@ -937,6 +938,7 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --prin
 - `cleanup --days 0 --dry-run` 已验证只预览匹配任务，不删除文件
 - OpenClaw 直接对话 job `20260425114306_151102_2572` 已验证成功；复核点包括 `run.sh status/result --raw`、job 目录文件、产物属主 `claude:claude` 与文件内容 `openclaw-direct-chat-ok`
 - OpenClaw 真实开发任务 job `20260425115333_151881_5a87` 已验证成功；第一个开发任务 job `20260425115311_151684_592f` 虽然 `status=succeeded`，但 Claude 输出为 prompt 被截断提示，不能算作完整任务成功
+- OpenClaw 中等复杂度压力测试 job `20260425121010_153516_00c5` 已验证成功；它覆盖多目录创建、多文件写入、README 修改、脚本 chmod、`result --raw` 复核和 `su - claude` 执行脚本验收
 
 推荐复用这组命令验证：
 
