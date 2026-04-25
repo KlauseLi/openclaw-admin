@@ -153,6 +153,7 @@ live workspace 状态：
 - agent 已能通过 `exec` 实际调用 `run.sh sync` 并创建 `claude:claude` 属主文件
 - agent 已能通过 `exec` 实际调用 `run.sh async` 并返回 `job_id`
 - OpenClaw 直接对话已验证 job `20260425114306_151102_2572`：job 文件写入 `/root/.openclaw/workspace/memory/claude-jobs/`，`status=succeeded`，产物 `/home/claude/workspaces/openclaw-agent-smoke/openclaw-direct-chat-ok.txt` 属主为 `claude:claude`
+- OpenClaw 真实开发任务已验证 job `20260425115333_151881_5a87`：成功创建 `/home/claude/workspaces/openclaw-agent-smoke/scripts/healthcheck.sh`，文件属主 `claude:claude`，权限 `775`，以 `claude` 用户执行通过
 - `run.sh async` worker 已用 `setsid nohup` 加固
 - `status` / `result` / `list` / `cancel` 会自动识别 dead PID，把陈旧 `running` job 收尾为 `failed`
 
@@ -935,6 +936,7 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --prin
 - `result --raw` 已验证会输出纯结果文本
 - `cleanup --days 0 --dry-run` 已验证只预览匹配任务，不删除文件
 - OpenClaw 直接对话 job `20260425114306_151102_2572` 已验证成功；复核点包括 `run.sh status/result --raw`、job 目录文件、产物属主 `claude:claude` 与文件内容 `openclaw-direct-chat-ok`
+- OpenClaw 真实开发任务 job `20260425115333_151881_5a87` 已验证成功；第一个开发任务 job `20260425115311_151684_592f` 虽然 `status=succeeded`，但 Claude 输出为 prompt 被截断提示，不能算作完整任务成功
 
 推荐复用这组命令验证：
 
@@ -948,6 +950,43 @@ bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh watch "$job_id"
 bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh list
 bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh cleanup --days 14 --dry-run
 ```
+
+### 6. 标准 smoke workspace 验收
+
+固定验收目录：
+
+```text
+/home/claude/workspaces/openclaw-agent-smoke
+```
+
+推荐在 OpenClaw 直接对话里发起真实开发任务，而不是只做单文件 smoke test。参考任务：
+
+```text
+请使用 claude-code async 在 /home/claude/workspaces/openclaw-agent-smoke 里完成一个小型真实开发任务：创建 README.md 和 scripts/healthcheck.sh。README 说明项目用途，healthcheck.sh 检查当前目录、git 状态和 claude 命令是否存在。请返回 job_id，用 watch 等待完成，然后用 result --raw 返回最终结果。
+```
+
+验收时不要只看 OpenClaw 回复，需要复核：
+
+```bash
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh status <job_id>
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh result --raw <job_id>
+ls -l /home/claude/workspaces/openclaw-agent-smoke/README.md \
+  /home/claude/workspaces/openclaw-agent-smoke/scripts/healthcheck.sh
+stat -c "%U:%G %a %n" \
+  /home/claude/workspaces/openclaw-agent-smoke/README.md \
+  /home/claude/workspaces/openclaw-agent-smoke/scripts/healthcheck.sh
+su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && ./scripts/healthcheck.sh'
+```
+
+通过标准：
+
+- `status` 为 `succeeded`
+- `result --raw` 是任务完成结果，不是截断提示或求澄清提示
+- 产物文件属主是 `claude:claude`
+- `scripts/healthcheck.sh` 有执行权限
+- 以 `claude` 用户执行 `./scripts/healthcheck.sh` 成功
+
+注意：用 `root` 直接执行 healthcheck 时，`git status` 可能触发 Git `dubious ownership` 提示。生产执行身份是 `claude`，最终以 `su - claude` 验收为准。
 
 ---
 

@@ -29,6 +29,7 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
   `~/.openclaw/workspace/skills/claude-code/SKILL.md`
 - 新 session 中显式提到 `claude-code skill` 后，OpenClaw agent 能注入该 skill，并能通过 `exec` 调用 `run.sh sync/async`。
 - OpenClaw 直接对话已实测走通 `run.sh async -> su - claude -> claude --print`：job `20260425114306_151102_2572` 成功创建 `claude:claude` 属主文件。
+- smoke workspace 已升级为真实开发任务验收点：`/home/claude/workspaces/openclaw-agent-smoke`，job `20260425115333_151881_5a87` 成功创建可执行 `scripts/healthcheck.sh`。
 - `run.sh async` 已加固：worker 使用 `setsid nohup` 启动，`status/result/list/cancel` 会把 dead PID 的陈旧 `running` 自动收尾为 `failed`。
 - 曾遇到 WSL drvfs/interop 故障：`claude --print` 触发 Bun 调用 `/mnt/c/Windows/System32/reg.exe`，而 `/mnt/c` 返回 `Input/output error`。已通过在 WSL 内重新挂载 `/mnt/c` 修复。
 
