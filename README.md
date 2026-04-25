@@ -43,11 +43,12 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 
 如果你第一次接手这个项目，推荐按这个顺序看：
 
-1. [open_claw_claude_code_proxy_可执行操作指南.md](./open_claw_claude_code_proxy_%E5%8F%AF%E6%89%A7%E8%A1%8C%E6%93%8D%E4%BD%9C%E6%8C%87%E5%8D%97.md)
-2. [openclaw.example.json](./openclaw.example.json)
-3. [skills/claude-code/SKILL.md](./skills/claude-code/SKILL.md)
-4. [skills/claude-code/scripts/run.sh](./skills/claude-code/scripts/run.sh)
-5. [proxy/server.js](./proxy/server.js)
+1. [NEXT.md](./NEXT.md)
+2. [open_claw_claude_code_proxy_可执行操作指南.md](./open_claw_claude_code_proxy_%E5%8F%AF%E6%89%A7%E8%A1%8C%E6%93%8D%E4%BD%9C%E6%8C%87%E5%8D%97.md)
+3. [openclaw.example.json](./openclaw.example.json)
+4. [skills/claude-code/SKILL.md](./skills/claude-code/SKILL.md)
+5. [skills/claude-code/scripts/run.sh](./skills/claude-code/scripts/run.sh)
+6. [proxy/server.js](./proxy/server.js)
 
 ## 仓库里的关键文件
 
