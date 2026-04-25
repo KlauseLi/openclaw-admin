@@ -14,9 +14,9 @@ OpenClaw -> claude-code skill -> run.sh -> env -i + su - claude -> Claude Code C
 
 已收集的国内模型厂商 Claude Code 接入文档：
 
-- MiniMax CN: [Claude Code - MiniMax 开放平台文档中心](https://platform.minimaxi.com/docs/token-plan/claude-code)
-- 智谱 GLM Coding Plan: [Claude Code - 智谱AI开放文档](https://docs.bigmodel.cn/cn/coding-plan/tool/claude)
-- 火山方舟: [Claude Code - 火山方舟 Coding Plan 个人版](https://www.volcengine.com/docs/82379/1928262?lang=zh)
+- MiniMax CN: [Claude Code - MiniMax 开放平台文档中心](https://platform.minimaxi.com/docs/token-plan/claude-code)；已验证
+- 智谱 GLM Coding Plan: [Claude Code - 智谱AI开放文档](https://docs.bigmodel.cn/cn/coding-plan/tool/claude)；待验证
+- 火山方舟: [Claude Code - 火山方舟 Coding Plan 个人版](https://www.volcengine.com/docs/82379/1928262?lang=zh)；待验证
 
 后续新增厂商时，先把官方文档链接补到这里，再决定是否需要新增单独的适配脚本或配置模板。
 
@@ -71,6 +71,13 @@ ANTHROPIC_DEFAULT_SONNET_MODEL=MiniMax-M2.7
 ANTHROPIC_DEFAULT_OPUS_MODEL=MiniMax-M2.7
 ANTHROPIC_DEFAULT_HAIKU_MODEL=MiniMax-M2.7
 ```
+
+## 待验证适配
+
+以下厂商已有官方 Claude Code 接入文档，但当前没有可用的 Coding Plan 计划完成实测，暂不标记为通过：
+
+- 智谱 GLM Coding Plan
+- 火山方舟 Coding Plan 个人版
 
 ## 与 OpenClaw 链路的边界
 
