@@ -23,7 +23,7 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 - `skills/claude-code/scripts/run.sh` 是当前推荐入口，通过 `su - claude` 执行 Claude Code
 - Claude Code 负责真实执行文件操作（沙箱限制：只能写工作目录下的文件）
 - Claude Code 认证来源是 `/home/claude/.claude/settings.json`
-- Claude Code 第三方模型切换来源是 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 和可选 `ANTHROPIC_MODEL`；`C:\Users\litaozhe\claude-admin\claude-cli-setup.sh`、`C:\Users\litaozhe\claude-admin\claude-cli-setup.ps1` 可作为获取 / 写入这些值的参考工具
+- Claude Code 第三方模型切换来源是 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 和可选 `ANTHROPIC_MODEL`；`scripts/claude-cli-setup.sh`、`scripts/claude-cli-setup.ps1` 可作为获取 / 写入这些值的参考工具
 - `run.sh` 用 `env -i + su - claude` 隔离执行环境，与 OpenClaw JSON 配置零耦合
 - 旧 `MCP -> bridge -> Claude Code` 方案已放弃：配置复杂，引入新技能插件后还需要调整 proxy 代码，维护成本高
 - 当前已验证的方式更简洁：OpenClaw 直接通过 workspace skill 和 `run.sh` 调用 Claude Code
@@ -71,6 +71,11 @@ skills/
       ├── SKILL.md
       └── scripts/
           └── run.sh
+
+scripts/
+  ├── check-claude-skill-state.sh
+  ├── claude-cli-setup.sh
+  └── claude-cli-setup.ps1
 
 bridge/   ← deprecated reference only
 proxy/    ← deprecated reference only
@@ -142,7 +147,7 @@ ANTHROPIC_AUTH_TOKEN
 ANTHROPIC_MODEL
 ```
 
-`C:\Users\litaozhe\claude-admin\claude-cli-setup.sh` 和 `C:\Users\litaozhe\claude-admin\claude-cli-setup.ps1` 已经覆盖了普通 shell / PowerShell 用户的交互式配置方式：输入第三方 `base_url`，再写入 `ANTHROPIC_AUTH_TOKEN`。这两个脚本应该作为“Claude Code 后端模型切换工具”纳入链路认知。
+`scripts/claude-cli-setup.sh` 和 `scripts/claude-cli-setup.ps1` 已经覆盖了普通 shell / PowerShell 用户的交互式配置方式：输入第三方 `base_url`，再写入 `ANTHROPIC_AUTH_TOKEN`。这两个脚本应该作为“Claude Code 后端模型切换工具”纳入链路认知。
 
 但当前 OpenClaw 生产执行路径里，`run.sh` 会通过 `env -i + su - claude` 清空继承环境并切到 `claude` 用户，所以 Windows 用户环境变量、root shell 环境变量或普通用户的 `.bashrc` 不会自动成为最终运行时配置。最终有效配置仍应落在：
 

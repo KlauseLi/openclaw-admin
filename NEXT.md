@@ -30,6 +30,8 @@ The current phase is now `stability-pressure-testing`, tracked under `stability/
 - `skills/claude-code/SKILL.md`
 - `skills/claude-code/scripts/run.sh`
 - `scripts/check-claude-skill-state.sh`
+- `scripts/claude-cli-setup.sh`
+- `scripts/claude-cli-setup.ps1`
 - `stability/README.md`
 - `stability/test-plan.md`
 - `stability/results/2026-04-25.md`
@@ -42,7 +44,7 @@ Claude Code switches to a third-party Claude-compatible backend through:
 - `ANTHROPIC_AUTH_TOKEN`
 - optional `ANTHROPIC_MODEL`
 
-The helper scripts in `C:\Users\litaozhe\claude-admin\claude-cli-setup.sh` and `C:\Users\litaozhe\claude-admin\claude-cli-setup.ps1` are useful for collecting and writing those values for a normal shell user. In the OpenClaw production path, `run.sh` uses `env -i + su - claude`, so the effective runtime source remains `/home/claude/.claude/settings.json` for the `claude` user.
+The helper scripts in `scripts/claude-cli-setup.sh` and `scripts/claude-cli-setup.ps1` are useful for collecting and writing those values for a normal shell user. In the OpenClaw production path, `run.sh` uses `env -i + su - claude`, so the effective runtime source remains `/home/claude/.claude/settings.json` for the `claude` user.
 
 ## Baseline Recheck
 

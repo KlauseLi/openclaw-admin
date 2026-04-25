@@ -30,7 +30,7 @@ The `claude` user must have Claude Code auth and onboarding state configured:
 }
 ```
 
-`ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` are the switch point for a third-party Claude-compatible model backend. `ANTHROPIC_MODEL` is optional when the upstream needs an explicit model name. Helper scripts such as `claude-cli-setup.sh` / `claude-cli-setup.ps1` can prepare these values for a normal shell user, but this skill runs under `env -i + su - claude`, so the production runtime source must be the `claude` user's config under `/home/claude/.claude/`.
+`ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` are the switch point for a third-party Claude-compatible model backend. `ANTHROPIC_MODEL` is optional when the upstream needs an explicit model name. Helper scripts such as `scripts/claude-cli-setup.sh` / `scripts/claude-cli-setup.ps1` can prepare these values for a normal shell user, but this skill runs under `env -i + su - claude`, so the production runtime source must be the `claude` user's config under `/home/claude/.claude/`.
 
 `/home/claude/.claude.json` must include:
 

@@ -58,6 +58,12 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 - `scripts/check-claude-skill-state.sh`
   只读检查 live workspace 里的 `claude-code` skill 状态，成功时输出 `claude-skill-state-ok`。
 
+- `scripts/claude-cli-setup.sh`
+  Linux / WSL shell 下的 Claude Code 第三方模型切换辅助脚本，用于交互式写入 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_AUTH_TOKEN`。
+
+- `scripts/claude-cli-setup.ps1`
+  Windows PowerShell 下的 Claude Code 第三方模型切换辅助脚本，用于交互式写入用户级 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_AUTH_TOKEN`。
+
 - `proxy/server.js`
   废弃历史参考。旧代理路线维护成本高，已被当前 `claude-code` skill + `run.sh` 方式替代。
 
@@ -76,7 +82,7 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 - Claude Code 默认工作目录：优先使用 `CLAUDE_WORK_DIR`，否则自动回退到可用目录
 - Claude 配置目录：`/home/claude/.claude`
 - Claude Code 认证来源：`/home/claude/.claude/settings.json`
-- 第三方 Claude-compatible 模型切换：参考 `C:\Users\litaozhe\claude-admin\claude-cli-setup.sh` 和 `C:\Users\litaozhe\claude-admin\claude-cli-setup.ps1` 获取 / 写入 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`；当前 OpenClaw 链路最终以 `/home/claude/.claude/settings.json` 中的值为准
+- 第三方 Claude-compatible 模型切换：参考 `scripts/claude-cli-setup.sh` 和 `scripts/claude-cli-setup.ps1` 获取 / 写入 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`；当前 OpenClaw 链路最终以 `/home/claude/.claude/settings.json` 中的值为准
 - `run.sh` 通过 `env -i + su - claude` 隔离执行环境，与 OpenClaw JSON 配置零耦合
 - OpenClaw gateway 默认端口：`18789`
 - 主入口优先使用 `skills/claude-code/scripts/run.sh`
