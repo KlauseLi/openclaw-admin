@@ -46,7 +46,7 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 ## 仓库里的关键文件
 
 - `skills/claude-code/scripts/run.sh`
-  当前主入口。已经支持 `sync`、`async`、`status`、`result`、`cancel`、`list` 这套任务流。
+  当前主入口。已经支持 `sync`、`async`、`status`、`result`、`watch`、`cancel`、`list`、`cleanup` 这套任务流。
   `async` worker 已脱离调用进程组，陈旧 `running` 会在查询时自动收尾。
 
 - `skills/claude-code/SKILL.md`

@@ -89,8 +89,11 @@ bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh sync "任务描
 bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh async "任务描述" -w /工作目录
 bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh status <job_id>
 bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh result <job_id>
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh result --raw <job_id>
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh watch <job_id> --interval 5 --timeout 600
 bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh cancel <job_id>
 bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh list
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh cleanup --days 14 --dry-run
 ```
 
 当前实测已通过：
@@ -101,6 +104,8 @@ bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh list
 - `result`
 - `cancel`
 - `list`
+- `watch`
+- `cleanup`
 
 ### 当前生产接入方式
 
@@ -703,6 +708,8 @@ bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh sync "echo skil
 job_id="$(bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh async "echo async-ok" -w /home/claude/workspaces/demo)"
 bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh status "$job_id"
 bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh result "$job_id"
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh result --raw "$job_id"
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh watch "$job_id" --interval 5 --timeout 600
 ```
 
 ---
@@ -872,11 +879,20 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --prin
 - `result`
   读取任务最终结果、stdout、stderr 和解析后的 `parsed_result`。
 
+- `result --raw`
+  只输出解析后的结果文本，便于 OpenClaw agent、shell 脚本或上层自动化消费。
+
+- `watch`
+  轮询等待任务进入 `succeeded`、`failed`、`cancelled` 或 `timed_out`，结束后输出完整 result JSON。
+
 - `cancel`
   取消正在运行的后台任务。
 
 - `list`
   查看最近的任务列表和历史状态。
+
+- `cleanup`
+  清理旧 job 的 meta、stdout、stderr 和 exit 文件。默认只清理已结束且超过 14 天的任务；先用 `--dry-run` 预览。
 
 异步管理层加固点：
 
@@ -894,7 +910,9 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --prin
 2. 长任务先调 `async`
 3. 拿到 `job_id` 后，轮询 `status`
 4. 状态结束后，再调 `result`
-5. 如需中止，调用 `cancel`
+5. 如需自动等待，调用 `watch`
+6. 如需中止，调用 `cancel`
+7. 定期用 `cleanup --dry-run` 检查可清理的历史任务
 
 这套方式的关键点不是“拉长单次同步调用超时”，而是把长任务从“单次同步调用”改成“启动 + 轮询 + 取结果”的异步模型。
 
@@ -912,6 +930,9 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --prin
 - 陈旧 `running` job 可自动收尾为 `failed / worker_missing`
 - remount `/mnt/c` 后，Claude Code CLI `claude --print` 已恢复
 - remount `/mnt/c` 后，OpenClaw agent async job `20260425105246_149070_f04b` 已验证成功
+- `watch` 已用 job `20260425111241_150054_e2a2` 验证成功
+- `result --raw` 已验证会输出纯结果文本
+- `cleanup --days 0 --dry-run` 已验证只预览匹配任务，不删除文件
 
 推荐复用这组命令验证：
 
@@ -920,7 +941,10 @@ bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh sync "echo sync
 job_id="$(bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh async "echo async-ok" -w /home/claude/workspaces/demo)"
 bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh status "$job_id"
 bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh result "$job_id"
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh result --raw "$job_id"
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh watch "$job_id" --interval 2 --timeout 120
 bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh list
+bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh cleanup --days 14 --dry-run
 ```
 
 ---

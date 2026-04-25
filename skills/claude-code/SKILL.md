@@ -44,8 +44,10 @@ The `claude` user must have Claude Code auth and onboarding state configured:
 - `async`
 - `status`
 - `result`
+- `watch`
 - `cancel`
 - `list`
+- `cleanup`
 
 Usage:
 
@@ -54,8 +56,11 @@ bash scripts/run.sh sync "task description" -w /path/to/git/repo
 bash scripts/run.sh async "task description" -w /path/to/git/repo
 bash scripts/run.sh status <job_id>
 bash scripts/run.sh result <job_id>
+bash scripts/run.sh result --raw <job_id>
+bash scripts/run.sh watch <job_id> --interval 5 --timeout 600
 bash scripts/run.sh cancel <job_id>
 bash scripts/run.sh list
+bash scripts/run.sh cleanup --days 14 --dry-run
 ```
 
 Notes:

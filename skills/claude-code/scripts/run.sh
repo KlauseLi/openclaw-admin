@@ -15,13 +15,17 @@ Usage:
   run.sh sync "<task>" [-w workdir]
   run.sh async "<task>" [-w workdir]
   run.sh status <job_id>
-  run.sh result <job_id>
+  run.sh result [--raw] <job_id>
+  run.sh watch <job_id> [--interval seconds] [--timeout seconds]
   run.sh cancel <job_id>
   run.sh list
+  run.sh cleanup [--days days] [--dry-run] [--all]
 
 Notes:
   - `sync` runs Claude Code and waits for the final result.
   - `async` starts a background worker and prints the job_id.
+  - `watch` waits for an async job to reach a terminal state.
+  - `cleanup` removes old async job files. Defaults to terminal jobs older than 14 days.
   - Async job metadata is stored under /root/.openclaw/workspace/memory/claude-jobs by default.
 EOF
   exit 2
@@ -202,6 +206,33 @@ if len(parsed) > max_chars:
     parsed = parsed[:max_chars] + "..."
 
 sys.stdout.write(parsed)
+PY
+}
+
+emit_raw_result() {
+  local stdout_path
+  stdout_path="$(job_stdout_path "$JOB_ID")"
+
+  if [[ ! -f "$stdout_path" ]]; then
+    return
+  fi
+
+  python3 - "$stdout_path" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8", errors="replace")
+
+try:
+    data = json.loads(text)
+    if isinstance(data, dict) and data.get("result") is not None:
+        text = str(data.get("result"))
+except Exception:
+    pass
+
+sys.stdout.write(text.strip())
 PY
 }
 
@@ -481,14 +512,99 @@ cmd_status() {
 }
 
 cmd_result() {
-  local job_id="$1"
+  local raw=0 job_id=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --raw)
+        raw=1
+        ;;
+      *)
+        [[ -z "$job_id" ]] || usage
+        job_id="$1"
+        ;;
+    esac
+    shift || true
+  done
+
   [[ -n "$job_id" ]] || usage
   load_meta "$job_id" || {
     echo "Job not found: $job_id" >&2
     exit 1
   }
   reconcile_job_state
+
+  if [[ "$raw" -eq 1 ]]; then
+    emit_raw_result
+    return
+  fi
+
   emit_job_json "result"
+}
+
+is_terminal_status() {
+  case "$1" in
+    succeeded|failed|cancelled|timed_out)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+cmd_watch() {
+  local job_id="" interval=5 timeout=0 start now elapsed
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --interval)
+        shift
+        [[ $# -gt 0 && "$1" =~ ^[0-9]+$ && "$1" -gt 0 ]] || usage
+        interval="$1"
+        ;;
+      --timeout)
+        shift
+        [[ $# -gt 0 && "$1" =~ ^[0-9]+$ ]] || usage
+        timeout="$1"
+        ;;
+      *)
+        [[ -z "$job_id" ]] || usage
+        job_id="$1"
+        ;;
+    esac
+    shift || true
+  done
+
+  [[ -n "$job_id" ]] || usage
+  start="$(date +%s)"
+
+  while true; do
+    load_meta "$job_id" || {
+      echo "Job not found: $job_id" >&2
+      exit 1
+    }
+    reconcile_job_state
+
+    if is_terminal_status "$STATUS"; then
+      emit_job_json "result"
+      if [[ "$STATUS" == "succeeded" ]]; then
+        return 0
+      fi
+      return 1
+    fi
+
+    if [[ "$timeout" -gt 0 ]]; then
+      now="$(date +%s)"
+      elapsed=$((now - start))
+      if [[ "$elapsed" -ge "$timeout" ]]; then
+        emit_job_json "status"
+        return 124
+      fi
+    fi
+
+    sleep "$interval"
+  done
 }
 
 cmd_cancel() {
@@ -522,6 +638,80 @@ cmd_list() {
   emit_list_json
 }
 
+cmd_cleanup() {
+  local days=14 dry_run=0 include_running=0 now cutoff meta_file ref_time ref_epoch removed=0
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --days)
+        shift
+        [[ $# -gt 0 && "$1" =~ ^[0-9]+$ ]] || usage
+        days="$1"
+        ;;
+      --dry-run)
+        dry_run=1
+        ;;
+      --all)
+        include_running=1
+        ;;
+      *)
+        usage
+        ;;
+    esac
+    shift || true
+  done
+
+  ensure_jobs_dir
+  now="$(date +%s)"
+  cutoff=$((now - days * 86400))
+
+  shopt -s nullglob
+  for meta_file in "$JOBS_DIR"/*.meta; do
+    JOB_ID=""
+    STATUS=""
+    CREATED_AT=""
+    STARTED_AT=""
+    FINISHED_AT=""
+    WORKDIR=""
+    PID=""
+    EXIT_CODE=""
+    SIGNAL=""
+    CANCELLED_AT=""
+    PROMPT=""
+    # shellcheck disable=SC1090
+    source "$meta_file"
+    reconcile_job_state
+
+    if [[ "$include_running" -eq 0 ]] && ! is_terminal_status "$STATUS"; then
+      continue
+    fi
+
+    ref_time="${FINISHED_AT:-${CREATED_AT:-}}"
+    [[ -n "$ref_time" ]] || continue
+    ref_epoch="$(date -d "$ref_time" +%s 2>/dev/null || true)"
+    [[ -n "$ref_epoch" ]] || continue
+    [[ "$ref_epoch" -le "$cutoff" ]] || continue
+
+    printf "%s\t%s\t%s\n" "$JOB_ID" "$STATUS" "$ref_time"
+    removed=$((removed + 1))
+
+    if [[ "$dry_run" -eq 0 ]]; then
+      rm -f -- \
+        "$(job_meta_path "$JOB_ID")" \
+        "$(job_stdout_path "$JOB_ID")" \
+        "$(job_stderr_path "$JOB_ID")" \
+        "$(job_exit_path "$JOB_ID")"
+    fi
+  done
+  shopt -u nullglob
+
+  if [[ "$dry_run" -eq 1 ]]; then
+    printf "dry_run=true removed=0 matched=%s\n" "$removed"
+  else
+    printf "removed=%s\n" "$removed"
+  fi
+}
+
 MODE="${1:-}"
 [[ -n "$MODE" ]] || usage
 shift || true
@@ -539,13 +729,19 @@ case "$MODE" in
     cmd_status "${1:-}"
     ;;
   result)
-    cmd_result "${1:-}"
+    cmd_result "$@"
+    ;;
+  watch)
+    cmd_watch "$@"
     ;;
   cancel)
     cmd_cancel "${1:-}"
     ;;
   list)
     cmd_list
+    ;;
+  cleanup)
+    cmd_cleanup "$@"
     ;;
   __worker)
     cmd_worker "${1:-}"
