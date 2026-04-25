@@ -48,7 +48,6 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 3. [openclaw.example.json](./openclaw.example.json)
 4. [skills/claude-code/SKILL.md](./skills/claude-code/SKILL.md)
 5. [skills/claude-code/scripts/run.sh](./skills/claude-code/scripts/run.sh)
-6. [proxy/server.js](./proxy/server.js)
 
 ## 仓库里的关键文件
 
@@ -63,10 +62,10 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
   只读检查 live workspace 里的 `claude-code` skill 状态，成功时输出 `claude-skill-state-ok`。
 
 - `proxy/server.js`
-  本地代理层，负责需要代理的聊天请求转发、model rewrite、流式响应透传和错误日志。
+  辅助/历史参考组件。本地代理层只处理仍需要代理的聊天请求，不是当前 Claude Code 执行主线入口。
 
 - `proxy/ecosystem.config.js`
-  PM2 启动配置，真实 `UPSTREAM_API_KEY` 通过环境变量注入。
+  辅助/历史参考组件。PM2 启动配置，真实 `UPSTREAM_API_KEY` 通过环境变量注入。
 
 - `bridge/`
   废弃参考实现。保留仅用于对照旧的 async job 思路，不再作为主执行入口。
