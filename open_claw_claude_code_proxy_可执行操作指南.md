@@ -150,7 +150,7 @@ live workspace 状态：
 - `run.sh async` worker 已用 `setsid nohup` 加固
 - `status` / `result` / `list` / `cancel` 会自动识别 dead PID，把陈旧 `running` job 收尾为 `failed`
 
-当前阻塞：
+已解除的阻塞：
 
 ```text
 claude --print
@@ -158,7 +158,25 @@ claude --print
   -> EIO: i/o error
 ```
 
-直接测试 `/mnt/c/Windows/System32/reg.exe` 也会返回 `Input/output error`，所以当前阻塞在 WSL/Windows interop 或 Claude Code CLI 的平台探测，不在 OpenClaw skill 注入或 async job 管理层。下次优先修这个问题，然后重跑第十一节和第十三节的验证。
+原因是 WSL 内 `/mnt/c` drvfs/9p 挂载损坏，表现为 `/mnt/c` / `/mnt/d` 显示 `d?????????`，直接测试 `/mnt/c/Windows/System32/reg.exe` 也返回 `Input/output error`。
+
+已通过下面命令修复：
+
+```bash
+umount /mnt/c 2>/tmp/umount-c.err || umount -l /mnt/c 2>>/tmp/umount-c.err || true
+mkdir -p /mnt/c
+mount -t drvfs C: /mnt/c -o metadata,umask=22,fmask=11
+```
+
+修复后已验证：
+
+- `/mnt/c/Windows/System32/reg.exe query "HKCU\\Console"` 成功
+- `su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --print ...'` 成功
+- `run.sh sync` 成功创建 `runsh-sync-fixed.txt`
+- `run.sh async` job `20260425104826_148510_8edf` 成功，`status=succeeded`
+- OpenClaw agent async job `20260425105246_149070_f04b` 成功，`status=succeeded`
+
+下次如果复发，先 remount `/mnt/c`；如果 remount 不生效，再从 Windows 侧执行 `wsl --shutdown` 后重启 Ubuntu。
 
 ---
 
@@ -778,7 +796,22 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --prin
 /mnt/c/Windows/System32/reg.exe query "HKCU\\Console"  # WSL 侧直接 Input/output error
 ```
 
-结论：这是当前 WSL 对 Windows 可执行文件 interop 的问题，Claude Code CLI 的 Bun 运行时在 `--print` 路径里触发了 Windows 平台探测。优先修复 WSL interop / Windows mount 后再继续验证 Claude Code 实际执行。
+结论：这是 WSL 对 Windows 可执行文件 interop 的问题，Claude Code CLI 的 Bun 运行时在 `--print` 路径里触发了 Windows 平台探测。
+
+快速修复：
+
+```bash
+umount /mnt/c 2>/tmp/umount-c.err || umount -l /mnt/c 2>>/tmp/umount-c.err || true
+mkdir -p /mnt/c
+mount -t drvfs C: /mnt/c -o metadata,umask=22,fmask=11
+```
+
+修复后验证：
+
+```bash
+/mnt/c/Windows/System32/reg.exe query "HKCU\\Console"
+su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --print --permission-mode bypassPermissions "创建或覆盖 interop-fixed-smoke.txt 内容 interop-fixed-ok"'
+```
 
 ---
 
@@ -877,10 +910,8 @@ su - claude -c 'cd /home/claude/workspaces/openclaw-agent-smoke && claude --prin
 - OpenClaw agent 新 session 可注入 `claude-code` skill
 - OpenClaw agent 可通过 `exec` 调用 `run.sh async` 并拿到 `job_id`
 - 陈旧 `running` job 可自动收尾为 `failed / worker_missing`
-
-当前未通过项：
-
-- Claude Code CLI 实际执行 `claude --print`，受 `/mnt/c/Windows/System32/reg.exe` EIO 阻塞
+- remount `/mnt/c` 后，Claude Code CLI `claude --print` 已恢复
+- remount `/mnt/c` 后，OpenClaw agent async job `20260425105246_149070_f04b` 已验证成功
 
 推荐复用这组命令验证：
 

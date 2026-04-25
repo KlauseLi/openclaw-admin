@@ -29,9 +29,9 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
   `~/.openclaw/workspace/skills/claude-code/SKILL.md`
 - 新 session 中显式提到 `claude-code skill` 后，OpenClaw agent 能注入该 skill，并能通过 `exec` 调用 `run.sh sync/async`。
 - `run.sh async` 已加固：worker 使用 `setsid nohup` 启动，`status/result/list/cancel` 会把 dead PID 的陈旧 `running` 自动收尾为 `failed`。
-- 当前阻塞不在 OpenClaw skill 或 async job 管理层，而在 Claude Code CLI：`claude --print` 会触发 Bun 调用 `/mnt/c/Windows/System32/reg.exe`，而当前 WSL 访问该文件返回 `Input/output error`。
+- 曾遇到 WSL drvfs/interop 故障：`claude --print` 触发 Bun 调用 `/mnt/c/Windows/System32/reg.exe`，而 `/mnt/c` 返回 `Input/output error`。已通过在 WSL 内重新挂载 `/mnt/c` 修复。
 
-下次继续时优先处理 WSL/Claude CLI 的 `reg.exe EIO`，再重跑端到端 async 验证。
+下次如果复发，先重新挂载 `/mnt/c`，再重跑端到端 async 验证。
 
 ## 先看哪里
 
@@ -78,6 +78,7 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 - 主入口优先使用 `skills/claude-code/scripts/run.sh`
 - `bridge/` 不再作为生产路径继续扩展
 - OpenClaw 聊天里如需刷新旧 session 的 skill 注入状态，先发 `/new`，或用新的 `--session-id`
+- 如 `/mnt/c` 出现 `d?????????` 或 `reg.exe` EIO，先在 WSL 内 remount `/mnt/c`
 
 ## 安全说明
 
