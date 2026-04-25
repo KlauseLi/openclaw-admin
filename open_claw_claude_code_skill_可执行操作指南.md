@@ -1,11 +1,11 @@
-# OpenClaw + Claude Code + Proxy 可执行操作指南
+# OpenClaw + Claude Code Skill 可执行操作指南
 
-这份指南基于当前已跑通的真实版本整理。当前主方向已经从 `claude-bridge` 切到 `skill script / exec 直调 Claude Code`，bridge 只保留为历史参考。
+这份指南基于当前已跑通的真实版本整理。当前主方向已经从旧的 `proxy`、`MCP -> bridge -> Claude Code`、PM2 守护方案切到 `skill script / exec 直调 Claude Code`。
 
 - OpenClaw 通过 skill script / exec 调用 Claude Code
 - Claude Code 在本地真实创建 / 修改文件
-- 需要代理的聊天请求通过本地 Proxy 访问上游模型
-- Proxy 由 PM2 守护，避免终端关闭后掉线
+- `proxy/`、`bridge/`、PM2 配置只保留为历史参考，不再作为生产方案维护
+- `openclaw.json` 已恢复到更简洁的 skill/plugin 调用状态，不再通过 `mcp.servers.claude-bridge` 接入 Claude Code
 
 ---
 
@@ -13,16 +13,12 @@
 
 ```
 VLM/图片请求: OpenClaw -> MiniMax 直连 (MINIMAX_API_HOST)
-                绕过 proxy，不经过 localhost:3040
+                不经过 localhost:3040 proxy
 
 Claude Code 执行请求: OpenClaw
                      -> skill script / exec
                      -> su - claude
                      -> Claude Code CLI
-
-需要代理的聊天请求: Claude Code
-                     -> Proxy (http://localhost:3040, model rewrite)
-                     -> MiniMax (/anthropic/v1/messages)
 ```
 
 说明：
@@ -30,9 +26,9 @@ Claude Code 执行请求: OpenClaw
 - OpenClaw 负责调度
 - `skills/claude-code/scripts/run.sh` 是当前推荐入口，通过 `su - claude` 执行 Claude Code
 - Claude Code 负责真实执行文件操作（沙箱限制：只能写工作目录下的文件）
-- Proxy 只处理需要代理的聊天请求，同时做 model rewrite（`claude-sonnet-4-6` → `MiniMax-M2.7`）
-- **VLM/图片请求走 MiniMax 直连**，由 `MINIMAX_API_HOST` 环境变量控制，绕过 proxy
-- `bridge/` 不再作为生产方案继续扩展，避免把本来不该走 proxy 的请求卷入旧链路
+- **VLM/图片请求走 MiniMax 直连**，由 `MINIMAX_API_HOST` 环境变量控制，不经过旧 proxy
+- 旧 `MCP -> bridge -> Claude Code` 方案已放弃：配置复杂，引入新技能插件后还需要调整 proxy 代码，维护成本高
+- 当前已验证的方式更简洁：OpenClaw 直接通过 workspace skill 和 `run.sh` 调用 Claude Code
 
 ---
 
@@ -53,7 +49,7 @@ Claude Code 执行请求: OpenClaw
   └── workspaces/demo/
 
 /root/ai-lab/
-  └── proxy/
+  └── proxy/  ← deprecated reference only
       ├── server.js
       ├── ecosystem.config.js
       ├── logs/
@@ -72,11 +68,11 @@ skills/
           └── run.sh
 
 bridge/   ← deprecated reference only
-proxy/
+proxy/    ← deprecated reference only
 ```
 
 > 说明：
-> 从本节开始，后面仍保留了一批旧的 `bridge` 配置、日志和验证内容，主要用于历史对照与迁移参考。
+> 从本节开始，后面仍保留了一批旧的 `proxy`、`bridge`、MCP、PM2 配置、日志和验证内容，主要用于历史对照与迁移参考。
 > 它们不再代表当前推荐生产方案。后续如果继续整理文档，应优先把这些章节逐步替换成 `skills/claude-code/scripts/run.sh` 的实际用法。
 
 当前推荐直接使用下面这组命令：
@@ -207,7 +203,7 @@ mount -t drvfs C: /mnt/c -o metadata,umask=22,fmask=11
 - Claude Code CLI
 - `claude` 系统用户
 - OpenClaw 已可启动
-- PM2 已安装
+- PM2 已安装（仅旧 proxy 历史方案需要；当前 skill 主线不需要）
 
 验证命令：
 
@@ -425,9 +421,11 @@ log("bridge: transport closed");
 
 ---
 
-## 七、Proxy 文件
+## 七、Proxy 文件（废弃历史参考）
 
 路径：`/root/ai-lab/proxy/server.js`
+
+本节只保留历史对照。proxy 方案已完全废弃，不再作为当前生产链路、维护目标或新功能入口。
 
 当前实际版本：
 
@@ -608,9 +606,11 @@ app.listen(PORT, () => {
 
 ---
 
-## 八、PM2 配置
+## 八、PM2 配置（废弃历史参考）
 
 路径：`/root/ai-lab/proxy/ecosystem.config.js`
+
+本节只保留历史对照。PM2 守护 proxy 的方案已随 proxy/bridge 路线一起废弃。
 
 ```js
 module.exports = {

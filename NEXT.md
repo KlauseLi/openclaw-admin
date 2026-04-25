@@ -26,7 +26,7 @@ The current phase is now `stability-pressure-testing`, tracked under `stability/
 ## Important Files
 
 - `README.md`
-- `open_claw_claude_code_proxy_可执行操作指南.md`
+- `open_claw_claude_code_skill_可执行操作指南.md`
 - `skills/claude-code/SKILL.md`
 - `skills/claude-code/scripts/run.sh`
 - `scripts/check-claude-skill-state.sh`

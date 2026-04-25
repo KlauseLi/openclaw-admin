@@ -1,11 +1,11 @@
 # OpenClaw Admin
 
-这个仓库保存的是一套 OpenClaw 本地执行链路模板，当前主线已经切到 `skill script + claude 用户直调`，不再把 `bridge` 作为生产入口。
+这个仓库保存的是一套 OpenClaw 本地执行链路模板，当前主线已经切到 `skill script + claude 用户直调`。旧的 `proxy`、`MCP -> bridge -> Claude Code`、PM2 守护方案已经废弃，不再作为生产入口或维护方向。
 
 - OpenClaw 通过 skill script / exec 调用 Claude Code
 - Claude Code 在本地真实创建和修改文件
-- 只有需要代理的聊天请求才通过本地 Proxy
-- 不需要代理的请求不再被 bridge 误卷入
+- OpenClaw 配置已恢复为更简洁的 skill/plugin 调用方式
+- `proxy/`、`bridge/`、PM2 配置只保留为历史参考
 
 当前方案已经统一到这条链路：
 
@@ -44,7 +44,7 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 如果你第一次接手这个项目，推荐按这个顺序看：
 
 1. [NEXT.md](./NEXT.md)
-2. [open_claw_claude_code_proxy_可执行操作指南.md](./open_claw_claude_code_proxy_%E5%8F%AF%E6%89%A7%E8%A1%8C%E6%93%8D%E4%BD%9C%E6%8C%87%E5%8D%97.md)
+2. [open_claw_claude_code_skill_可执行操作指南.md](./open_claw_claude_code_skill_%E5%8F%AF%E6%89%A7%E8%A1%8C%E6%93%8D%E4%BD%9C%E6%8C%87%E5%8D%97.md)
 3. [openclaw.example.json](./openclaw.example.json)
 4. [skills/claude-code/SKILL.md](./skills/claude-code/SKILL.md)
 5. [skills/claude-code/scripts/run.sh](./skills/claude-code/scripts/run.sh)
@@ -62,18 +62,18 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
   只读检查 live workspace 里的 `claude-code` skill 状态，成功时输出 `claude-skill-state-ok`。
 
 - `proxy/server.js`
-  辅助/历史参考组件。本地代理层只处理仍需要代理的聊天请求，不是当前 Claude Code 执行主线入口。
+  废弃历史参考。旧代理路线维护成本高，已被当前 `claude-code` skill + `run.sh` 方式替代。
 
 - `proxy/ecosystem.config.js`
-  辅助/历史参考组件。PM2 启动配置，真实 `UPSTREAM_API_KEY` 通过环境变量注入。
+  废弃历史参考。PM2 守护 proxy 的方案不再作为当前项目运维目标。
 
 - `bridge/`
-  废弃参考实现。保留仅用于对照旧的 async job 思路，不再作为主执行入口。
+  废弃历史参考。`OpenClaw MCP -> bridge -> Claude Code` 方案已经放弃，不再作为主执行入口。
 
 - `openclaw.example.json`
-  脱敏后的 OpenClaw 配置模板，用于对照 MCP、gateway、插件和 channel 结构。
+  脱敏后的 OpenClaw 配置模板，用于对照当前更简洁的 gateway、插件和 channel 结构；不要重新启用旧 `claude-bridge` MCP。
 
-- `open_claw_claude_code_proxy_可执行操作指南.md`
+- `open_claw_claude_code_skill_可执行操作指南.md`
   当前最完整、最贴近真实部署状态的操作文档。
 
 ## 当前约定
@@ -81,11 +81,9 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 - Claude Code 运行用户：`claude`
 - Claude Code 默认工作目录：优先使用 `CLAUDE_WORK_DIR`，否则自动回退到可用目录
 - Claude 配置目录：`/home/claude/.claude`
-- Proxy 运行目录：`/root/ai-lab/proxy`
-- Proxy 监听地址：`http://localhost:3040`
 - OpenClaw gateway 默认端口：`18789`
 - 主入口优先使用 `skills/claude-code/scripts/run.sh`
-- `bridge/` 不再作为生产路径继续扩展
+- `proxy/`、`bridge/`、PM2、`claude-bridge` MCP 不再作为生产路径继续扩展
 - OpenClaw 聊天里如需刷新旧 session 的 skill 注入状态，先发 `/new`，或用新的 `--session-id`
 - 如 `/mnt/c` 出现 `d?????????` 或 `reg.exe` EIO，先在 WSL 内 remount `/mnt/c`
 
