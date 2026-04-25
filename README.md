@@ -32,6 +32,7 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 - smoke workspace 已升级为真实开发任务验收点：`/home/claude/workspaces/openclaw-agent-smoke`，job `20260425115333_151881_5a87` 成功创建可执行 `scripts/healthcheck.sh`。
 - 中等复杂度压力测试已通过：job `20260425121010_153516_00c5` 创建 `app/config.json`、`src/report.md`、`scripts/medium_check.sh` 并修改 `README.md`，`medium_check.sh` 以 `claude` 用户执行输出 `medium-smoke-ok`。
 - smoke workspace 固定回归脚本已通过：job `20260425122112_154322_7f04` 创建 `scripts/validate_smoke.sh`，以 `claude` 用户执行输出 `validate-smoke-ok`。
+- 真实仓库小功能修改已通过：job `20260425123748_159236_3ac5` 在本仓库新增 `scripts/check-claude-skill-state.sh`，脚本执行输出 `claude-skill-state-ok`。
 - `run.sh async` 已加固：worker 使用 `setsid nohup` 启动，`status/result/list/cancel` 会把 dead PID 的陈旧 `running` 自动收尾为 `failed`。
 - 曾遇到 WSL drvfs/interop 故障：`claude --print` 触发 Bun 调用 `/mnt/c/Windows/System32/reg.exe`，而 `/mnt/c` 返回 `Input/output error`。已通过在 WSL 内重新挂载 `/mnt/c` 修复。
 
@@ -55,6 +56,9 @@ OpenClaw -> MiniMax direct (MINIMAX_API_HOST)
 
 - `skills/claude-code/SKILL.md`
   说明这个技能包的定位、运行方式和后续演进方向。
+
+- `scripts/check-claude-skill-state.sh`
+  只读检查 live workspace 里的 `claude-code` skill 状态，成功时输出 `claude-skill-state-ok`。
 
 - `proxy/server.js`
   本地代理层，负责需要代理的聊天请求转发、model rewrite、流式响应透传和错误日志。
