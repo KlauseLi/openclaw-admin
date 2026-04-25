@@ -5,7 +5,7 @@
 - OpenClaw 是完整产品名，不拆写；官网：[openclaw.ai](https://openclaw.ai)
 - OpenClaw 通过 skill script / exec 调用 Claude Code
 - Claude Code 在本地真实创建和修改文件
-- OpenClaw 配置已恢复为更简洁的 skill/plugin 调用方式
+- `claude-code` 配置完全独立于 OpenClaw JSON 配置体系
 - `proxy/`、`bridge/`、PM2 配置只保留为历史参考
 
 当前方案已经统一到这条链路：
@@ -42,9 +42,8 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 
 1. [NEXT.md](./NEXT.md)
 2. [openclaw_claude_code_skill_可执行操作指南.md](./openclaw_claude_code_skill_%E5%8F%AF%E6%89%A7%E8%A1%8C%E6%93%8D%E4%BD%9C%E6%8C%87%E5%8D%97.md)
-3. [openclaw.example.json](./openclaw.example.json)
-4. [skills/claude-code/SKILL.md](./skills/claude-code/SKILL.md)
-5. [skills/claude-code/scripts/run.sh](./skills/claude-code/scripts/run.sh)
+3. [skills/claude-code/SKILL.md](./skills/claude-code/SKILL.md)
+4. [skills/claude-code/scripts/run.sh](./skills/claude-code/scripts/run.sh)
 
 ## 仓库里的关键文件
 
@@ -67,9 +66,6 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 - `bridge/`
   废弃历史参考。`OpenClaw MCP -> bridge -> Claude Code` 方案已经放弃，不再作为主执行入口。
 
-- `openclaw.example.json`
-  只保留与当前 skill 主线相关的配置片段：workspace 位置和空 `mcp.servers`。它不是完整 OpenClaw 配置，也不是 `run.sh` 的运行依赖。
-
 - `openclaw_claude_code_skill_可执行操作指南.md`
   当前最完整、最贴近真实部署状态的操作文档。
 
@@ -78,6 +74,8 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 - Claude Code 运行用户：`claude`
 - Claude Code 默认工作目录：优先使用 `CLAUDE_WORK_DIR`，否则自动回退到可用目录
 - Claude 配置目录：`/home/claude/.claude`
+- Claude Code 认证来源：`/home/claude/.claude/settings.json`
+- `run.sh` 通过 `env -i + su - claude` 隔离执行环境，与 OpenClaw JSON 配置零耦合
 - OpenClaw gateway 默认端口：`18789`
 - 主入口优先使用 `skills/claude-code/scripts/run.sh`
 - `proxy/`、`bridge/`、PM2、`claude-bridge` MCP 不再作为生产路径继续扩展
@@ -88,7 +86,7 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 
 - 真实的 `/root/.openclaw/openclaw.json` 不提交到仓库
 - 真实 token、API key、channel 密钥和用户 allowlist 都只保留在本地环境
-- `openclaw.example.json` 只保留当前链路相关的脱敏片段，不再复制完整配置
+- 当前 Claude Code 执行链路不依赖仓库中的 OpenClaw JSON 示例，因此不再保留 `openclaw.example.json`
 - `proxy/`、`bridge/`、PM2 内容只作为历史参考，不作为安全边界或当前运维目标
 
 ## 备注

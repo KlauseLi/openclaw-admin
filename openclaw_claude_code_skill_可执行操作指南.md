@@ -6,7 +6,7 @@
 - OpenClaw 通过 skill script / exec 调用 Claude Code
 - Claude Code 在本地真实创建 / 修改文件
 - `proxy/`、`bridge/`、PM2 配置只保留为历史参考，不再作为生产方案维护
-- `openclaw.json` 已恢复到更简洁的 skill/plugin 调用状态，不再通过 `mcp.servers.claude-bridge` 接入 Claude Code
+- `claude-code` 的认证和运行配置独立于 OpenClaw JSON 配置体系，不再通过 `mcp.servers.claude-bridge` 接入 Claude Code
 
 ---
 
@@ -21,13 +21,15 @@ OpenClaw -> skill script / exec -> su - claude -> Claude Code CLI
 - OpenClaw 负责调度
 - `skills/claude-code/scripts/run.sh` 是当前推荐入口，通过 `su - claude` 执行 Claude Code
 - Claude Code 负责真实执行文件操作（沙箱限制：只能写工作目录下的文件）
+- Claude Code 认证来源是 `/home/claude/.claude/settings.json`
+- `run.sh` 用 `env -i + su - claude` 隔离执行环境，与 OpenClaw JSON 配置零耦合
 - 旧 `MCP -> bridge -> Claude Code` 方案已放弃：配置复杂，引入新技能插件后还需要调整 proxy 代码，维护成本高
 - 当前已验证的方式更简洁：OpenClaw 直接通过 workspace skill 和 `run.sh` 调用 Claude Code
 
 安全与备注：
 
 - 真实 `/root/.openclaw/openclaw.json`、token、API key、channel 密钥、用户 allowlist 不进入仓库。
-- `openclaw.example.json` 只保留当前链路相关的脱敏片段，不是完整 OpenClaw 配置。
+- 当前 Claude Code 执行链路不依赖仓库中的 OpenClaw JSON 示例，因此不再保留 `openclaw.example.json`。
 - 判断真实状态时，以 live workspace 的 `claude-code` skill、`run.sh` 和 `scripts/check-claude-skill-state.sh` 的复核结果为准。
 - `proxy/`、`bridge/`、PM2 内容只作为历史参考，不作为当前安全边界或运维目标。
 
@@ -126,7 +128,7 @@ bash /root/.openclaw/workspace/skills/claude-code/scripts/run.sh sync "任务描
 /root/.openclaw/workspace/memory/pending_jobs.md
 ```
 
-`openclaw.example.json` 只保留与当前 skill 主线相关的配置片段：workspace 位置和空 `mcp.servers`。它不是完整 OpenClaw 配置，也不是 `run.sh` 的运行依赖。除非需要回放历史 bridge 方案，否则不要重新启用 `claude-bridge`。
+当前 Claude Code 执行链路不需要仓库内的 OpenClaw JSON 示例。`claude-code` skill 由 OpenClaw workspace 发现，Claude Code 认证由 `/home/claude/.claude/settings.json` 提供，`run.sh` 通过 `env -i + su - claude` 隔离执行。除非需要回放历史 bridge 方案，否则不要重新启用 `claude-bridge`。
 
 ### 当前接续状态（2026-04-25）
 
