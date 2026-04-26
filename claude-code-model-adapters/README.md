@@ -20,6 +20,12 @@ OpenClaw -> claude-code skill -> run.sh -> env -i + su - claude -> Claude Code C
 
 后续新增厂商时，先把官方文档链接补到这里，再决定是否需要新增单独的适配脚本或配置模板。
 
+## 长期研究方向
+
+- [Codex 与 Claude Code 互操作研究](./codex-interop-research.md)
+
+这个方向复杂度较高，当前只做调研，不进入 OpenClaw 生产链路。
+
 ## 当前配置点
 
 Claude Code 切换第三方模型的关键参数是：
